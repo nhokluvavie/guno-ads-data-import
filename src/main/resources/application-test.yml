@@ -1,0 +1,33 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/gunads_test
+    username: gunads_test
+    password: gunads_test
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+
+meta:
+  ads:
+    app-id: test_app_id
+    app-secret: test_app_secret
+    access-token: test_access_token
+    rate-limit:
+      requests-per-hour: 50
+
+scheduler:
+  enabled: false
+
+batch:
+  size: 100
+  processing:
+    chunk-size: 50
+    thread-pool-size: 2
+
+logging:
+  level:
+    com.gunads: DEBUG
+    org.springframework.jdbc: DEBUG
+    org.springframework.test: DEBUG
+  file:
+    name: logs/guna-ads-test.log

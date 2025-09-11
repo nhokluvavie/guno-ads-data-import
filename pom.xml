@@ -13,7 +13,7 @@
     </parent>
 
     <groupId>com.gunoads</groupId>
-    <artifactId>guno-ads-data-import</artifactId>
+    <artifactId>gunoads-data-pipeline</artifactId>
     <version>1.0.0</version>
     <name>GunOads Data Pipeline</name>
     <description>Meta Ads Data Pipeline for PostgreSQL</description>
@@ -49,12 +49,15 @@
             <artifactId>spring-boot-configuration-processor</artifactId>
             <optional>true</optional>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
 
         <!-- Database -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>com.zaxxer</groupId>
@@ -142,15 +145,18 @@
 
     <profiles>
         <profile>
-            <id>prod</id>
+            <id>test</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <properties>
-                <spring.profiles.active>prod</spring.profiles.active>
+                <spring.profiles.active>test</spring.profiles.active>
             </properties>
         </profile>
         <profile>
-            <id>test</id>
+            <id>prod</id>
             <properties>
-                <spring.profiles.active>test</spring.profiles.active>
+                <spring.profiles.active>prod</spring.profiles.active>
             </properties>
         </profile>
     </profiles>

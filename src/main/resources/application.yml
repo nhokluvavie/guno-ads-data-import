@@ -1,0 +1,81 @@
+spring:
+  application:
+    name: guna-ads-data-import
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:test}
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: ${DB_MIN_IDLE:5}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:30000}
+      idle-timeout: ${DB_IDLE_TIMEOUT:600000}
+      max-lifetime: ${DB_MAX_LIFETIME:1800000}
+      pool-name: GunaAdsHikariCP
+
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: never
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: GunaAdsScheduler
+            instanceId: AUTO
+          jobStore:
+            class: org.quartz.impl.jdbcjobstore.JobStoreTX
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+            useProperties: false
+            misfireThreshold: 60000
+            clusterCheckinInterval: 5000
+            isClustered: true
+          threadPool:
+            class: org.quartz.simpl.SimpleThreadPool
+            threadCount: 10
+            threadPriority: 5
+
+meta:
+  ads:
+    app-id: ${META_APP_ID}
+    app-secret: ${META_APP_SECRET}
+    access-token: ${META_ACCESS_TOKEN}
+    api-version: ${META_API_VERSION:v19.0}
+    base-url: ${META_BASE_URL:https://graph.facebook.com}
+    rate-limit:
+      requests-per-hour: ${META_RATE_LIMIT:200}
+      retry-attempts: ${META_RETRY_ATTEMPTS:3}
+      retry-delay-ms: ${META_RETRY_DELAY:5000}
+
+scheduler:
+  enabled: ${SCHEDULER_ENABLED:true}
+  daily-job-cron: ${DAILY_JOB_CRON:0 0 2 * * ?}
+  hierarchy-job-cron: ${HIERARCHY_JOB_CRON:0 0 1 ? * SUN}
+
+batch:
+  size: ${BATCH_SIZE:1000}
+  processing:
+    chunk-size: ${CHUNK_SIZE:500}
+    thread-pool-size: ${THREAD_POOL_SIZE:5}
+
+logging:
+  level:
+    com.gunads: ${LOG_LEVEL:INFO}
+    org.springframework.jdbc: ${JDBC_LOG_LEVEL:WARN}
+    com.facebook.ads: ${META_SDK_LOG_LEVEL:WARN}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
