@@ -51,7 +51,7 @@ public class MetaCampaignDto {
     private String bidStrategy;
 
     @JsonProperty("optimization_goal")
-    private String optimizationGoal;
+    private String optimizationGoal;  // Added missing field
 
     @JsonProperty("special_ad_categories")
     private String specialAdCategories;

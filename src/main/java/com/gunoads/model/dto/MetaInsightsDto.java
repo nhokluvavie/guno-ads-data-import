@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @Data
 public class MetaInsightsDto {
 
+    // Basic identifiers
     @JsonProperty("campaign_id")
     private String campaignId;
 
@@ -18,14 +19,18 @@ public class MetaInsightsDto {
     @JsonProperty("account_id")
     private String accountId;
 
+    // BREAKDOWN DIMENSIONS (CRITICAL - These were missing!)
     private String age;
     private String gender;
     private String country;
     private String region;
+    private String city;  // Added missing breakdown
     private String placement;
+    private String device_platform;  // Added device breakdown
 
-    // Core metrics
+    // Core spend & performance metrics
     private String spend;
+    private String revenue;  // May need custom mapping
     private String impressions;
     private String clicks;
 
@@ -40,6 +45,8 @@ public class MetaInsightsDto {
 
     private String reach;
     private String frequency;
+
+    // Cost metrics
     private String cpc;
     private String cpm;
     private String cpp;
@@ -47,6 +54,9 @@ public class MetaInsightsDto {
 
     @JsonProperty("unique_ctr")
     private String uniqueCtr;
+
+    @JsonProperty("cost_per_unique_click")
+    private String costPerUniqueClick;  // Added missing cost metric
 
     // Engagement metrics
     @JsonProperty("post_engagement")
@@ -65,6 +75,7 @@ public class MetaInsightsDto {
     @JsonProperty("video_views")
     private String videoViews;
 
+    // Video completion metrics
     @JsonProperty("video_p25_watched_actions")
     private String videoP25WatchedActions;
 
@@ -81,7 +92,7 @@ public class MetaInsightsDto {
     private String videoP100WatchedActions;
 
     @JsonProperty("video_avg_percent_watched")
-    private String videoAvgPercentWatched;
+    private String videoAvgPercentWatched;  // Added missing video metric
 
     // Conversion metrics
     private String purchases;

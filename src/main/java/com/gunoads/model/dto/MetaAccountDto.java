@@ -36,7 +36,7 @@ public class MetaAccountDto {
     private String businessName;
 
     @JsonProperty("business_country_code")
-    private String businessCountryCode;
+    private Integer businessCountryCode;  // Fixed: Integer not String
 
     @JsonProperty("business_city")
     private String businessCity;
@@ -48,7 +48,7 @@ public class MetaAccountDto {
     private String businessStreet;
 
     @JsonProperty("business_zip")
-    private String businessZip;
+    private Integer businessZip;  // Fixed: Integer not String
 
     @JsonProperty("is_personal")
     private Boolean isPersonal;
@@ -73,7 +73,7 @@ public class MetaAccountDto {
     private String fundingSource;
 
     @JsonProperty("account_age")
-    private Integer accountAge;
+    private Integer accountAge;  // Added missing field
 
     @JsonProperty("has_page_authorized_adaccount")
     private Boolean hasPageAuthorizedAdAccount;

@@ -22,7 +22,7 @@ public class MetaAdSetDto {
     private String effectiveStatus;
 
     @JsonProperty("lifetime_imps")
-    private Long lifetimeImps;
+    private Long lifetimeImps;  // Added missing field
 
     @JsonProperty("start_time")
     private String startTime;
@@ -49,7 +49,7 @@ public class MetaAdSetDto {
     private String bidStrategy;
 
     @JsonProperty("is_autobid")
-    private Boolean isAutobid;
+    private Boolean isAutobid;  // Added missing field
 
     @JsonProperty("daily_budget")
     private String dailyBudget;
@@ -86,4 +86,7 @@ public class MetaAdSetDto {
 
     @JsonProperty("adset_schedule")
     private String adsetSchedule;
+
+    @JsonProperty("attribution_spec")
+    private String attributionSpec;
 }
