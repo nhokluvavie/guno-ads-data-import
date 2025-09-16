@@ -22,6 +22,9 @@ public class MetaAdsConfig {
     @NotBlank
     private String accessToken;
 
+    @NotBlank
+    private String businessId;
+
     private String apiVersion = "v19.0";
 
     private String baseUrl = "https://graph.facebook.com";
@@ -51,6 +54,10 @@ public class MetaAdsConfig {
         return baseUrl + "/" + apiVersion;
     }
 
+    public String getBusinessAccountsEndpoint() {
+        return getGraphUrl() + "/" + businessId + "/adaccounts";
+    }
+
     public String getAccountsEndpoint() {
         return getGraphUrl() + "/me/adaccounts";
     }
@@ -74,6 +81,7 @@ public class MetaAdsConfig {
     public boolean isValidConfiguration() {
         return appId != null && !appId.trim().isEmpty() &&
                 appSecret != null && !appSecret.trim().isEmpty() &&
-                accessToken != null && !accessToken.trim().isEmpty();
+                accessToken != null && !accessToken.trim().isEmpty() &&
+                businessId != null && !businessId.trim().isEmpty();
     }
 }

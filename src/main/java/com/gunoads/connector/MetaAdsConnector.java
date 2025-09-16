@@ -32,6 +32,37 @@ public class MetaAdsConnector {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
+     * Fetch ad accounts from business (recommended approach)
+     */
+    public List<MetaAccountDto> fetchBusinessAccounts() throws MetaApiException {
+        logger.info("Fetching ad accounts from business: {}", metaAdsConfig.getBusinessId());
+
+        return metaApiClient.executeWithRetry(context -> {
+            try {
+                Business business = new Business(metaAdsConfig.getBusinessId(), context);
+                APINodeList<AdAccount> accounts = business
+                        .getOwnedAdAccounts()
+                        .requestAllFields()
+                        .execute();
+
+                List<MetaAccountDto> accountDtos = new ArrayList<>();
+
+                for (AdAccount account : accounts) {
+                    MetaAccountDto dto = mapAccountToDto(account);
+                    accountDtos.add(dto);
+                }
+
+                logger.info("Successfully fetched {} ad accounts from business", accountDtos.size());
+                return accountDtos;
+
+            } catch (Exception e) {
+                logger.error("Failed to fetch business accounts: {}", e.getMessage());
+                throw new MetaApiException("Failed to fetch business ad accounts", e);
+            }
+        });
+    }
+
+    /**
      * Fetch all ad accounts accessible to the current user
      */
     public List<MetaAccountDto> fetchAccounts() throws MetaApiException {
@@ -47,26 +78,7 @@ public class MetaAdsConnector {
                 List<MetaAccountDto> accountDtos = new ArrayList<>();
 
                 for (AdAccount account : accounts) {
-                    MetaAccountDto dto = new MetaAccountDto();
-
-                    dto.setId(safeGetString(account.getId()));
-                    dto.setAccountId(safeGetString(account.getFieldAccountId()));
-                    dto.setAccountName(safeGetString(account.getFieldName()));
-                    dto.setCurrency(safeGetString(account.getFieldCurrency()));
-                    dto.setTimezoneId(safeGetInteger(account.getFieldTimezoneId()));
-                    dto.setTimezoneName(safeGetString(account.getFieldTimezoneName()));
-                    dto.setAccountStatus(safeGetString(account.getFieldAccountStatus()));
-                    dto.setAmountSpent(safeGetString(account.getFieldAmountSpent()));
-                    dto.setBalance(safeGetString(account.getFieldBalance()));
-                    dto.setSpendCap(safeGetString(account.getFieldSpendCap()));
-                    dto.setCreatedTime(safeGetString(account.getFieldCreatedTime()));
-
-                    Business business = account.getFieldBusiness();
-                    if (business != null) {
-                        dto.setBusinessId(safeGetString(business.getId()));
-                        dto.setBusinessName(safeGetString(business.getFieldName()));
-                    }
-
+                    MetaAccountDto dto = mapAccountToDto(account);
                     accountDtos.add(dto);
                 }
 
@@ -78,6 +90,33 @@ public class MetaAdsConnector {
                 throw new MetaApiException("Failed to fetch ad accounts", e);
             }
         });
+    }
+
+    /**
+     * Map AdAccount to DTO (shared logic)
+     */
+    private MetaAccountDto mapAccountToDto(AdAccount account) {
+        MetaAccountDto dto = new MetaAccountDto();
+
+        dto.setId(safeGetString(account.getId()));
+        dto.setAccountId(safeGetString(account.getFieldAccountId()));
+        dto.setAccountName(safeGetString(account.getFieldName()));
+        dto.setCurrency(safeGetString(account.getFieldCurrency()));
+        dto.setTimezoneId(safeGetInteger(account.getFieldTimezoneId()));
+        dto.setTimezoneName(safeGetString(account.getFieldTimezoneName()));
+        dto.setAccountStatus(safeGetString(account.getFieldAccountStatus()));
+        dto.setAmountSpent(safeGetString(account.getFieldAmountSpent()));
+        dto.setBalance(safeGetString(account.getFieldBalance()));
+        dto.setSpendCap(safeGetString(account.getFieldSpendCap()));
+        dto.setCreatedTime(safeGetString(account.getFieldCreatedTime()));
+
+        Business business = account.getFieldBusiness();
+        if (business != null) {
+            dto.setBusinessId(safeGetString(business.getId()));
+            dto.setBusinessName(safeGetString(business.getFieldName()));
+        }
+
+        return dto;
     }
 
     /**
@@ -370,11 +409,11 @@ public class MetaAdsConnector {
     }
 
     /**
-     * Test API connectivity
+     * Test API connectivity using business accounts
      */
     public boolean testConnectivity() {
         try {
-            List<MetaAccountDto> accounts = fetchAccounts();
+            List<MetaAccountDto> accounts = fetchBusinessAccounts();
             return accounts != null && !accounts.isEmpty();
         } catch (Exception e) {
             logger.error("Connectivity test failed: {}", e.getMessage());
