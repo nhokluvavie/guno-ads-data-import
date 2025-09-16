@@ -10,7 +10,7 @@
         <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
             <file>logs/guna-ads-test.log</file>
             <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-                <fileNamePattern>logs/guna-ads-test.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+                <fileNamePattern>logs/guno-ads-test.%d{yyyy-MM-dd}.gz</fileNamePattern>
                 <maxFileSize>10MB</maxFileSize>
                 <maxHistory>7</maxHistory>
                 <totalSizeCap>100MB</totalSizeCap>
@@ -35,7 +35,7 @@
         <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
             <file>logs/guna-ads-prod.log</file>
             <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-                <fileNamePattern>logs/guna-ads-prod.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+                <fileNamePattern>logs/guno-ads-prod.%d{yyyy-MM-dd}.gz</fileNamePattern>
                 <maxFileSize>100MB</maxFileSize>
                 <maxHistory>30</maxHistory>
                 <totalSizeCap>3GB</totalSizeCap>
@@ -53,7 +53,7 @@
                 <onMismatch>DENY</onMismatch>
             </filter>
             <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-                <fileNamePattern>logs/guna-ads-error.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+                <fileNamePattern>logs/guno-ads-error.%d{yyyy-MM-dd}.gz</fileNamePattern>
                 <maxFileSize>50MB</maxFileSize>
                 <maxHistory>60</maxHistory>
                 <totalSizeCap>1GB</totalSizeCap>

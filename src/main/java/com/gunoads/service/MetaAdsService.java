@@ -54,7 +54,7 @@ public class MetaAdsService {
 
         try {
             // 1. Sync accounts
-            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchAccounts();
+            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchBusinessAccounts();
             List<Account> accounts = dataTransformer.transformAccounts(accountDtos);
 
             for (Account account : accounts) {

@@ -1,19 +1,27 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/gunads_test
-    username: gunads_test
-    password: gunads_test
+    url: jdbc:postgresql://103.97.125.92:5432/guno_db_test?useSSL=false
+    username: guno_user
+    password: UYUgjL80moKrc6WTDLbg
     hikari:
       maximum-pool-size: 5
       minimum-idle: 2
 
+  quartz:
+    job-store-type: memory
+
 meta:
   ads:
-    app-id: test_app_id
-    app-secret: test_app_secret
-    access-token: test_access_token
+    app-id: ${META_APP_ID}
+    app-secret: ${META_APP_SECRET}
+    access-token: ${META_ACCESS_TOKEN}
+    business-id: ${META_BUSINESS_ID}
+    api-version: ${META_API_VERSION:v19.0}
+    base-url: ${META_BASE_URL:https://graph.facebook.com}
     rate-limit:
       requests-per-hour: 50
+      retry-attempts: 3
+      retry-delay-ms: 5000
 
 scheduler:
   enabled: false

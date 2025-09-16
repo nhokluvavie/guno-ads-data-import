@@ -44,6 +44,7 @@ meta:
     app-id: ${META_APP_ID}
     app-secret: ${META_APP_SECRET}
     access-token: ${META_ACCESS_TOKEN}
+    business-id: ${META_BUSINESS_ID}
     api-version: ${META_API_VERSION:v19.0}
     base-url: ${META_BASE_URL:https://graph.facebook.com}
     rate-limit:

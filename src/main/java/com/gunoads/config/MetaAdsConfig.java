@@ -25,7 +25,7 @@ public class MetaAdsConfig {
     @NotBlank
     private String businessId;
 
-    private String apiVersion = "v19.0";
+    private String apiVersion = "v23.0";
 
     private String baseUrl = "https://graph.facebook.com";
 
