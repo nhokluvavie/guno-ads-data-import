@@ -1,0 +1,60 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://103.97.125.92:5432/guno_db_test?useSSL=false}
+    username: ${DB_USERNAME:guno_user}
+    password: ${DB_PASSWORD:UYUgjL80moKrc6WTDLbg}
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 5
+      connection-timeout: 10000
+      idle-timeout: 300000
+      max-lifetime: 900000
+
+  task:
+    scheduling:
+      pool:
+        size: 3
+
+meta:
+  ads:
+    app-id: ${META_APP_ID:1074088404500375}
+    app-secret: ${META_APP_SECRET:3afab66607ac6da081c6419ec1f06037}
+    access-token: ${META_ACCESS_TOKEN:EAAPQ4LHOv5cBPV9ZBRjq2Vd6v4qLW94d6vkov9JUELRFsZAZCkT40jZAZAd8WRg2JwVztYZA1ffL1jyAEiFWQOaqVVSvKeJgAbtdj3BqjgsBQZB6PM66bVZBjRweYcZCSrufCVntYDOOFLkXCRSy01LuJjz5rH6ZCSQ9vQUBuy2d7ahazUOp2o0ZBKVPTBer2zflZAyXmH50VFkG}
+    business-id: ${META_BUSINESS_ID:253131508705207}
+    rate-limit:
+      requests-per-hour: 100
+      retry-attempts: 3
+      retry-delay-ms: 3000
+
+scheduler:
+  enabled: false  # Disable auto-scheduling in integration tests
+
+batch:
+  processing:
+    copy-from-threshold: 50  # Lower threshold for testing
+
+logging:
+  level:
+    com.gunoads: INFO
+    org.springframework.jdbc: WARN
+    com.facebook.ads: WARN
+    org.springframework.transaction: INFO
+    org.springframework.test: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# Test-specific configurations
+test:
+  timeout:
+    api-call: 30000
+    database-operation: 10000
+  retry:
+    max-attempts: 3
+    delay-ms: 1000

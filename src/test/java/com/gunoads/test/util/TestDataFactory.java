@@ -251,6 +251,43 @@ public class TestDataFactory {
         return reporting;
     }
 
+    public static Placement createPlacement() {
+        Placement placement = new Placement();
+        placement.setId("placement_123");
+        placement.setAdvertisementId("ad_123");
+        placement.setPlacementName("Facebook Feed");
+        placement.setPlatform("facebook");
+        placement.setPlacementType("feed");
+        placement.setDeviceType("mobile");
+        placement.setPosition("1");
+        placement.setIsActive(true);
+        placement.setSupportsVideo(true);
+        placement.setSupportsCarousel(true);
+        placement.setSupportsCollection(false);
+        placement.setCreatedAt(TIMESTAMP);
+        return placement;
+    }
+
+    public static AdsProcessingDate createAdsProcessingDate() {
+        AdsProcessingDate date = new AdsProcessingDate();
+        date.setFullDate("2024-01-01");
+        date.setDayOfWeek(1);
+        date.setDayOfWeekName("Monday");
+        date.setDayOfMonth(1);
+        date.setDayOfYear(1);
+        date.setWeekOfYear(1);
+        date.setMonthOfYear(1);
+        date.setMonthName("January");
+        date.setQuarter(1);
+        date.setYear(2024);
+        date.setIsWeekend(false);
+        date.setIsHoliday(false);
+        date.setHolidayName(null);
+        date.setFiscalYear(2024);
+        date.setFiscalQuarter(1);
+        return date;
+    }
+
     // ==================== List Factories ====================
 
     public static List<MetaAccountDto> createMetaAccountDtoList(int count) {

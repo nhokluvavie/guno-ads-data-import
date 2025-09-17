@@ -14,22 +14,22 @@ import java.util.List;
 public class AdsProcessingDateDao extends StandardDao<AdsProcessingDate, String> {
 
     @Override
-    protected String getTableName() {
+    public String getTableName() {
         return "tbl_ads_processing_date";
     }
 
     @Override
-    protected String getIdColumnName() {
+    public String getIdColumnName() {
         return "full_date";
     }
 
     @Override
-    protected RowMapper<AdsProcessingDate> getRowMapper() {
+    public RowMapper<AdsProcessingDate> getRowMapper() {
         return new AdsProcessingDateRowMapper();
     }
 
     @Override
-    protected String buildInsertSql() {
+    public String buildInsertSql() {
         return """
             INSERT INTO tbl_ads_processing_date (
                 full_date, day_of_week, day_of_week_name, day_of_month, day_of_year,
@@ -44,7 +44,7 @@ public class AdsProcessingDateDao extends StandardDao<AdsProcessingDate, String>
     }
 
     @Override
-    protected String buildUpdateSql() {
+    public String buildUpdateSql() {
         return """
             UPDATE tbl_ads_processing_date SET 
                 day_of_week = :dayOfWeek, day_of_week_name = :dayOfWeekName,
@@ -59,7 +59,7 @@ public class AdsProcessingDateDao extends StandardDao<AdsProcessingDate, String>
     }
 
     @Override
-    protected SqlParameterSource getInsertParameters(AdsProcessingDate date) {
+    public SqlParameterSource getInsertParameters(AdsProcessingDate date) {
         return new MapSqlParameterSource()
                 .addValue("fullDate", date.getFullDate())
                 .addValue("dayOfWeek", date.getDayOfWeek())

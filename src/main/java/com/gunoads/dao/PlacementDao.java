@@ -14,22 +14,22 @@ import java.util.List;
 public class PlacementDao extends StandardDao<Placement, String> {
 
     @Override
-    protected String getTableName() {
+    public String getTableName() {
         return "tbl_placement";
     }
 
     @Override
-    protected String getIdColumnName() {
+    public String getIdColumnName() {
         return "id";
     }
 
     @Override
-    protected RowMapper<Placement> getRowMapper() {
+    public RowMapper<Placement> getRowMapper() {
         return new PlacementRowMapper();
     }
 
     @Override
-    protected String buildInsertSql() {
+    public String buildInsertSql() {
         return """
             INSERT INTO tbl_placement (
                 id, advertisement_id, placement_name, platform, placement_type,
@@ -44,7 +44,7 @@ public class PlacementDao extends StandardDao<Placement, String> {
     }
 
     @Override
-    protected String buildUpdateSql() {
+    public String buildUpdateSql() {
         return """
             UPDATE tbl_placement SET 
                 placement_name = :placementName, platform = :platform,
@@ -56,7 +56,7 @@ public class PlacementDao extends StandardDao<Placement, String> {
     }
 
     @Override
-    protected SqlParameterSource getInsertParameters(Placement placement) {
+    public SqlParameterSource getInsertParameters(Placement placement) {
         return new MapSqlParameterSource()
                 .addValue("id", placement.getId())
                 .addValue("advertisementId", placement.getAdvertisementId())
