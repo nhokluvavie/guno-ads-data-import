@@ -3,6 +3,11 @@ spring:
     name: guna-ads-data-import
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:test}
+  task:
+    scheduling:
+      pool:
+        size: 5
+      thread-name-prefix: guna-scheduler-
 
   datasource:
     url: ${DB_URL}
@@ -16,28 +21,6 @@ spring:
       idle-timeout: ${DB_IDLE_TIMEOUT:600000}
       max-lifetime: ${DB_MAX_LIFETIME:1800000}
       pool-name: GunaAdsHikariCP
-
-  quartz:
-    job-store-type: jdbc
-    jdbc:
-      initialize-schema: never
-    properties:
-      org:
-        quartz:
-          scheduler:
-            instanceName: GunaAdsScheduler
-            instanceId: AUTO
-          jobStore:
-            class: org.quartz.impl.jdbcjobstore.JobStoreTX
-            driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
-            useProperties: false
-            misfireThreshold: 60000
-            clusterCheckinInterval: 5000
-            isClustered: true
-          threadPool:
-            class: org.quartz.simpl.SimpleThreadPool
-            threadCount: 10
-            threadPriority: 5
 
 meta:
   ads:
@@ -62,12 +45,14 @@ batch:
   processing:
     chunk-size: ${CHUNK_SIZE:500}
     thread-pool-size: ${THREAD_POOL_SIZE:5}
+    copy-from-threshold: ${COPY_FROM_THRESHOLD:5000}
 
 logging:
   level:
-    com.gunads: ${LOG_LEVEL:INFO}
+    com.gunoads: ${LOG_LEVEL:INFO}
     org.springframework.jdbc: ${JDBC_LOG_LEVEL:WARN}
     com.facebook.ads: ${META_SDK_LOG_LEVEL:WARN}
+    org.springframework.scheduling: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

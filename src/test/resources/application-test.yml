@@ -1,9 +1,16 @@
 spring:
   datasource:
-    url: jdbc:postgresql://103.97.125.92:5432/guno_db_test?useSSL=false
-    username: guno_user
-    password: UYUgjL80moKrc6WTDLbg
-    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL:jdbc:postgresql://103.97.125.92:5432/guno_db_test?useSSL=false}
+    username: ${DB_USERNAME:guno_user}
+    password: ${DB_PASSWORD:UYUgjL80moKrc6WTDLbg}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+
+  task:
+    scheduling:
+      pool:
+        size: 2
 
 meta:
   ads:
@@ -11,12 +18,18 @@ meta:
     app-secret: ${META_APP_SECRET:3afab66607ac6da081c6419ec1f06037}
     access-token: ${META_ACCESS_TOKEN:EAAPQ4LHOv5cBPV9ZBRjq2Vd6v4qLW94d6vkov9JUELRFsZAZCkT40jZAZAd8WRg2JwVztYZA1ffL1jyAEiFWQOaqVVSvKeJgAbtdj3BqjgsBQZB6PM66bVZBjRweYcZCSrufCVntYDOOFLkXCRSy01LuJjz5rH6ZCSQ9vQUBuy2d7ahazUOp2o0ZBKVPTBer2zflZAyXmH50VFkG}
     business-id: ${META_BUSINESS_ID:253131508705207}
-    api-version: v23.0
     rate-limit:
       requests-per-hour: 50
       retry-attempts: 2
 
+scheduler:
+  enabled: false  # Disable scheduler in tests
+
+batch:
+  processing:
+    copy-from-threshold: 100  # Lower threshold for testing
+
 logging:
   level:
     com.gunoads: DEBUG
-    com.facebook.ads: DEBUG
+    org.springframework.scheduling: DEBUG
