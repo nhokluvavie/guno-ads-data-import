@@ -14,22 +14,22 @@ import java.util.List;
 public class CampaignDao extends StandardDao<Campaign, String> {
 
     @Override
-    protected String getTableName() {
+    public String getTableName() {
         return "tbl_campaign";
     }
 
     @Override
-    protected String getIdColumnName() {
+    public String getIdColumnName() {
         return "id";
     }
 
     @Override
-    protected RowMapper<Campaign> getRowMapper() {
+    public RowMapper<Campaign> getRowMapper() {
         return new CampaignRowMapper();
     }
 
     @Override
-    protected String buildInsertSql() {
+    public String buildInsertSql() {
         return """
             INSERT INTO tbl_campaign (
                 id, account_id, platform_id, campaign_name, cam_objective, start_time,
@@ -48,7 +48,7 @@ public class CampaignDao extends StandardDao<Campaign, String> {
     }
 
     @Override
-    protected String buildUpdateSql() {
+    public String buildUpdateSql() {
         return """
             UPDATE tbl_campaign SET 
                 campaign_name = :campaignName, cam_objective = :camObjective,
@@ -65,7 +65,7 @@ public class CampaignDao extends StandardDao<Campaign, String> {
     }
 
     @Override
-    protected SqlParameterSource getInsertParameters(Campaign campaign) {
+    public SqlParameterSource getInsertParameters(Campaign campaign) {
         return new MapSqlParameterSource()
                 .addValue("id", campaign.getId())
                 .addValue("accountId", campaign.getAccountId())

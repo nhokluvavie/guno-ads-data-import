@@ -16,22 +16,22 @@ import java.util.function.Function;
 public class AdsReportingDao extends StandardDao<AdsReporting, String> {
 
     @Override
-    protected String getTableName() {
+    public String getTableName() {
         return "tbl_ads_reporting";
     }
 
     @Override
-    protected String getIdColumnName() {
+    public String getIdColumnName() {
         return "account_id"; // Composite primary key, using first column
     }
 
     @Override
-    protected RowMapper<AdsReporting> getRowMapper() {
+    public RowMapper<AdsReporting> getRowMapper() {
         return new AdsReportingRowMapper();
     }
 
     @Override
-    protected String buildInsertSql() {
+    public String buildInsertSql() {
         return """
             INSERT INTO tbl_ads_reporting (
                 account_id, platform_id, campaign_id, adset_id, advertisement_id, placement_id,
@@ -62,7 +62,7 @@ public class AdsReportingDao extends StandardDao<AdsReporting, String> {
     }
 
     @Override
-    protected String buildUpdateSql() {
+    public String buildUpdateSql() {
         return """
             UPDATE tbl_ads_reporting SET 
                 spend = :spend, revenue = :revenue, purchase_roas = :purchaseRoas,
@@ -91,7 +91,7 @@ public class AdsReportingDao extends StandardDao<AdsReporting, String> {
     }
 
     @Override
-    protected SqlParameterSource getInsertParameters(AdsReporting reporting) {
+    public SqlParameterSource getInsertParameters(AdsReporting reporting) {
         return new MapSqlParameterSource()
                 .addValue("accountId", reporting.getAccountId())
                 .addValue("platformId", reporting.getPlatformId())

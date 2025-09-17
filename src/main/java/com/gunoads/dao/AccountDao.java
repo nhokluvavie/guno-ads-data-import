@@ -14,22 +14,22 @@ import java.util.List;
 public class AccountDao extends StandardDao<Account, String> {
 
     @Override
-    protected String getTableName() {
+    public String getTableName() {
         return "tbl_account";
     }
 
     @Override
-    protected String getIdColumnName() {
+    public String getIdColumnName() {
         return "id";
     }
 
     @Override
-    protected RowMapper<Account> getRowMapper() {
+    public RowMapper<Account> getRowMapper() {
         return new AccountRowMapper();
     }
 
     @Override
-    protected String buildInsertSql() {
+    public String buildInsertSql() {
         return """
             INSERT INTO tbl_account (
                 id, platform_id, account_name, currency, timezone_id, timezone_name, 
@@ -52,7 +52,7 @@ public class AccountDao extends StandardDao<Account, String> {
     }
 
     @Override
-    protected String buildUpdateSql() {
+    public String buildUpdateSql() {
         return """
             UPDATE tbl_account SET 
                 account_name = :accountName, currency = :currency, timezone_id = :timezoneId,
@@ -74,7 +74,7 @@ public class AccountDao extends StandardDao<Account, String> {
     }
 
     @Override
-    protected SqlParameterSource getInsertParameters(Account account) {
+    public SqlParameterSource getInsertParameters(Account account) {
         return new MapSqlParameterSource()
                 .addValue("id", account.getId())
                 .addValue("platformId", account.getPlatformId())
