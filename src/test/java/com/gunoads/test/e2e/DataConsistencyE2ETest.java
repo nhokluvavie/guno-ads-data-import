@@ -414,7 +414,7 @@ class DataConsistencyE2ETest extends BaseE2ETest {
         return Math.max(score, 0);
     }
 
-    private void waitForProcessing(long millis) {
+    public void waitForProcessing(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {

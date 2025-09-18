@@ -399,7 +399,7 @@ class PerformanceE2ETest extends BaseE2ETest {
         return runtime.totalMemory() - runtime.freeMemory();
     }
 
-    private void waitForProcessing(long millis) {
+    public void waitForProcessing(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {

@@ -261,7 +261,7 @@ class SchedulerE2ETest extends BaseE2ETest {
                 "Should either succeed or handle error gracefully");
     }
 
-    private void waitForProcessing(long millis) {
+    public void waitForProcessing(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {

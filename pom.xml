@@ -64,7 +64,7 @@
         <dependency>
             <groupId>com.facebook.business.sdk</groupId>
             <artifactId>facebook-java-business-sdk</artifactId>
-            <version>${facebook.business.sdk.version}</version>
+            <version>23.0.0</version>
         </dependency>
 
         <!-- JSON Processing -->

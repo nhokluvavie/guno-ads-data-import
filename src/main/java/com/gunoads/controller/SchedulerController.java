@@ -33,6 +33,20 @@ public class SchedulerController {
     }
 
     /**
+     * Trigger full sync (hierarchy + performance) - MISSING ENDPOINT ADDED
+     */
+    @PostMapping("/sync/full")
+    public ResponseEntity<Map<String, String>> triggerFullSync() {
+        try {
+            metaAdsService.performFullSync();
+            return ResponseEntity.ok(Map.of("status", "success", "message", "Full sync completed"));
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        }
+    }
+
+    /**
      * Trigger hierarchy sync only
      */
     @PostMapping("/sync/hierarchy")

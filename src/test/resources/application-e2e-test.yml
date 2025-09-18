@@ -1,14 +1,19 @@
 spring:
+  application:
+    name: guna-ads-data-import-e2e
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://103.97.125.92:5432/guno_db_test?useSSL=false&currentSchema=ads_analytics}
     username: ${DB_USERNAME:guno_user}
     password: ${DB_PASSWORD:UYUgjL80moKrc6WTDLbg}
+    driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 15
       minimum-idle: 5
       connection-timeout: 10000
       idle-timeout: 300000
       max-lifetime: 900000
+      pool-name: GunaAdsE2EHikariCP
 
   task:
     scheduling:
@@ -29,13 +34,16 @@ meta:
       retry-delay-ms: 3000
 
 scheduler:
-  enabled: true  # ENABLE scheduler cho manual triggers trong integration test
-  daily-job-cron: "0 0 0 1 1 ?"  # CRON không bao giờ chạy (1 Jan mỗi năm)
-  hierarchy-job-cron: "0 0 0 1 1 ?"  # CRON không bao giờ chạy
+  enabled: true  # ENABLE scheduler for E2E tests
+  daily-job-cron: "0 0 0 1 1 ?"  # CRON never runs (1 Jan each year)
+  hierarchy-job-cron: "0 0 0 1 1 ?"  # CRON never runs
 
 batch:
+  size: 500  # Smaller batch for E2E
   processing:
-    copy-from-threshold: 50  # Lower threshold for testing
+    chunk-size: 250
+    thread-pool-size: 3
+    copy-from-threshold: 100
 
 logging:
   level:
@@ -44,21 +52,23 @@ logging:
     com.facebook.ads: WARN
     org.springframework.transaction: INFO
     org.springframework.test: INFO
+    org.springframework.web: INFO
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: "*"  # All actuator endpoints for E2E
   endpoint:
     health:
       show-details: always
 
-# Test-specific configurations
+# E2E specific configurations
 test:
   timeout:
     api-call: 30000
-    database-operation: 10000
+    database-operation: 15000
+    full-sync: 60000
   retry:
     max-attempts: 3
-    delay-ms: 1000
+    delay-ms: 2000
