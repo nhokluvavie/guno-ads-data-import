@@ -28,7 +28,7 @@ meta:
     app-secret: ${META_APP_SECRET}
     access-token: ${META_ACCESS_TOKEN}
     business-id: ${META_BUSINESS_ID}
-    api-version: ${META_API_VERSION:v19.0}
+    api-version: ${META_API_VERSION:v23.0}
     base-url: ${META_BASE_URL:https://graph.facebook.com}
     rate-limit:
       requests-per-hour: ${META_RATE_LIMIT:200}

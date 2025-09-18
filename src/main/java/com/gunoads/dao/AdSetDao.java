@@ -14,22 +14,22 @@ import java.util.List;
 public class AdSetDao extends StandardDao<AdSet, String> {
 
     @Override
-    protected String getTableName() {
+    public String getTableName() {
         return "tbl_adset";
     }
 
     @Override
-    protected String getIdColumnName() {
+    public String getIdColumnName() {
         return "id";
     }
 
     @Override
-    protected RowMapper<AdSet> getRowMapper() {
+    public RowMapper<AdSet> getRowMapper() {
         return new AdSetRowMapper();
     }
 
     @Override
-    protected String buildInsertSql() {
+    public String buildInsertSql() {
         return """
             INSERT INTO tbl_adset (
                 id, campaign_id, ad_set_name, ad_set_status, lifetime_imps, start_time,
@@ -52,7 +52,7 @@ public class AdSetDao extends StandardDao<AdSet, String> {
     }
 
     @Override
-    protected String buildUpdateSql() {
+    public String buildUpdateSql() {
         return """
             UPDATE tbl_adset SET 
                 ad_set_name = :adSetName, ad_set_status = :adSetStatus, lifetime_imps = :lifetimeImps,
@@ -72,7 +72,7 @@ public class AdSetDao extends StandardDao<AdSet, String> {
     }
 
     @Override
-    protected SqlParameterSource getInsertParameters(AdSet adSet) {
+    public SqlParameterSource getInsertParameters(AdSet adSet) {
         return new MapSqlParameterSource()
                 .addValue("id", adSet.getId())
                 .addValue("campaignId", adSet.getCampaignId())

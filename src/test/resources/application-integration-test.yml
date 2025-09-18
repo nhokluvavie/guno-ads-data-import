@@ -21,13 +21,17 @@ meta:
     app-secret: ${META_APP_SECRET:3afab66607ac6da081c6419ec1f06037}
     access-token: ${META_ACCESS_TOKEN:EAAPQ4LHOv5cBPV9ZBRjq2Vd6v4qLW94d6vkov9JUELRFsZAZCkT40jZAZAd8WRg2JwVztYZA1ffL1jyAEiFWQOaqVVSvKeJgAbtdj3BqjgsBQZB6PM66bVZBjRweYcZCSrufCVntYDOOFLkXCRSy01LuJjz5rH6ZCSQ9vQUBuy2d7ahazUOp2o0ZBKVPTBer2zflZAyXmH50VFkG}
     business-id: ${META_BUSINESS_ID:253131508705207}
+    api-version: ${META_API_VERSION:v23.0}
+    base-url: ${META_BASE_URL:https://graph.facebook.com}
     rate-limit:
       requests-per-hour: 100
       retry-attempts: 3
       retry-delay-ms: 3000
 
 scheduler:
-  enabled: false  # Disable auto-scheduling in integration tests
+  enabled: true  # ENABLE scheduler cho manual triggers trong integration test
+  daily-job-cron: "0 0 0 1 1 ?"  # CRON không bao giờ chạy (1 Jan mỗi năm)
+  hierarchy-job-cron: "0 0 0 1 1 ?"  # CRON không bao giờ chạy
 
 batch:
   processing:
