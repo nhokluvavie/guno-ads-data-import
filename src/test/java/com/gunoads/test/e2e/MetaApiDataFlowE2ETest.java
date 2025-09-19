@@ -512,6 +512,109 @@ class MetaApiDataFlowE2ETest extends BaseE2ETest {
 
     @Test
     @Order(3)
+    @DisplayName("E2E: Meta API → AdSet Data → Database")
+    @Transactional
+    @Commit
+    void testMetaApiToAdSetDatabase() {
+        System.out.println("\n🔄 TESTING: Meta API → AdSet Data → Database");
+
+        // Step 1: Get accounts first (needed for adsets)
+        System.out.println("📋 Step 1: Getting accounts for adsets...");
+        List<MetaAccountDto> accountDtos = metaAdsConnector.fetchBusinessAccounts();
+        assumeFalse(accountDtos.isEmpty(), "Need accounts to test adsets");
+
+        String accountId = accountDtos.get(2).getId();
+        System.out.printf("🎯 Using account: %s\n", accountId);
+
+        // Step 2: Fetch adsets from Meta API
+        System.out.println("📡 Step 2: Fetching adsets from Meta API...");
+        List<MetaAdSetDto> adSetDtos = metaAdsConnector.fetchAdSets(accountId);
+
+        assertNotNull(adSetDtos, "AdSet DTOs should not be null");
+        System.out.printf("✅ Fetched %d adsets from Meta API\n", adSetDtos.size());
+
+        if (adSetDtos.isEmpty()) {
+            System.out.println("⚠️  No adsets found - test completed");
+            return;
+        }
+
+        // Step 3: Transform adsets to entities
+        System.out.println("🔄 Step 3: Transforming adsets to entities...");
+        List<AdSet> adSets = adSetDtos.stream()
+                .map(dataTransformer::transformAdSet)
+                .toList();
+
+        assertEquals(adSetDtos.size(), adSets.size(), "Should transform all adsets");
+
+        // Verify transformation
+        for (AdSet adSet : adSets) {
+            assertNotNull(adSet.getId(), "AdSet ID should not be null");
+            assertNotNull(adSet.getCampaignId(), "Campaign ID should not be null");
+            assertNotNull(adSet.getAdSetName(), "AdSet name should not be null");
+            System.out.printf("    🔍 Transformed adset: %s (%s)\n", adSet.getId(), adSet.getAdSetName());
+        }
+
+        // Step 4: Insert/update adsets to database
+        System.out.println("💾 Step 4: Inserting/updating adsets to database...");
+        long initialCount = adSetDao.count();
+        System.out.printf("📊 Initial adset count: %d\n", initialCount);
+
+        int insertedCount = 0;
+        int updatedCount = 0;
+
+        for (AdSet adSet : adSets) {
+            try {
+                if (adSetDao.existsById(adSet.getId())) {
+                    adSetDao.update(adSet);
+                    updatedCount++;
+                    System.out.printf("        🔄 Updated adset: %s\n", adSet.getId());
+                } else {
+                    adSetDao.insert(adSet);
+                    insertedCount++;
+                    System.out.printf("        ✅ Inserted adset: %s\n", adSet.getId());
+                }
+            } catch (Exception e) {
+                System.out.printf("        ⚠️  AdSet operation failed for %s: %s\n", adSet.getId(), e.getMessage());
+            }
+        }
+
+        // Step 5: Verify database insertion
+        System.out.println("🔍 Step 5: Verifying database insertion...");
+        long finalCount = adSetDao.count();
+        System.out.printf("📊 Database verification - Initial: %d, Final: %d\n", initialCount, finalCount);
+
+        // Verify at least some data was processed
+        assertTrue(insertedCount + updatedCount > 0,
+                "Should have inserted or updated at least one adset");
+
+        // If new adsets were inserted, count should increase
+        if (insertedCount > 0) {
+            assertTrue(finalCount > initialCount,
+                    String.format("If %d adsets were inserted, count should increase from %d to more than %d",
+                            insertedCount, initialCount, initialCount));
+        }
+
+        // Verify specific adsets exist in database
+        System.out.println("🔍 Verifying specific adsets in database...");
+        for (AdSet adSet : adSets.subList(0, Math.min(3, adSets.size()))) { // Check first 3
+            Optional<AdSet> dbAdSet = adSetDao.findById(adSet.getId());
+            assertTrue(dbAdSet.isPresent(),
+                    "AdSet " + adSet.getId() + " should exist in database");
+            assertEquals(adSet.getAdSetName(), dbAdSet.get().getAdSetName(),
+                    "AdSet name should match");
+            assertEquals(adSet.getCampaignId(), dbAdSet.get().getCampaignId(),
+                    "Campaign ID should match");
+            System.out.printf("    ✅ Verified adset in DB: %s\n", adSet.getId());
+        }
+
+        System.out.printf("\n✅ Meta API → AdSet Database flow completed!\n");
+        System.out.printf("🎯 SUCCESS RATE: %d/%d adsets processed successfully (%.1f%%)\n",
+                insertedCount + updatedCount, adSets.size(),
+                ((double)(insertedCount + updatedCount) / adSets.size()) * 100);
+    }
+
+    @Test
+    @Order(4)
     @DisplayName("E2E: Meta API → Performance Data → Database")
     void testMetaApiToPerformanceDatabase() {
         System.out.println("\n🔄 TESTING: Meta API → Performance Data → Database");
@@ -592,7 +695,7 @@ class MetaApiDataFlowE2ETest extends BaseE2ETest {
     }
 
     @Test
-    @Order(4)
+    @Order(5)
     @DisplayName("E2E: Complete Data Flow - All Tables with Full Hierarchy")
     @Transactional
     @Commit

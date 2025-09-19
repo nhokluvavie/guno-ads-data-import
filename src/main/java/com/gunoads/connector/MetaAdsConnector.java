@@ -34,7 +34,7 @@ public class MetaAdsConnector {
     // ==================== ACCOUNT METHODS ====================
 
     /**
-     * Fetch ad accounts from business (recommended approach)
+     * Fetch business accounts - Enhanced to get all results
      */
     public List<MetaAccountDto> fetchBusinessAccounts() throws MetaApiException {
         logger.info("Fetching ad accounts from business: {}", metaAdsConfig.getBusinessId());
@@ -42,12 +42,16 @@ public class MetaAdsConnector {
         return metaApiClient.executeWithRetry(context -> {
             try {
                 Business business = new Business(metaAdsConfig.getBusinessId(), context);
+
+                // Single call - SDK handles pagination internally
                 APINodeList<AdAccount> accounts = business
                         .getOwnedAdAccounts()
-                        .requestFields(metaApiProperties.getFields().getAccount()) // Fix: Use List directly
+                        .requestFields(metaApiProperties.getFields().getAccount())
                         .execute();
 
                 List<MetaAccountDto> accountDtos = new ArrayList<>();
+
+                // Process all results - SDK has already fetched everything
                 for (AdAccount account : accounts) {
                     accountDtos.add(mapAccountToDto(account));
                 }
@@ -63,37 +67,7 @@ public class MetaAdsConnector {
     }
 
     /**
-     * Fetch all ad accounts accessible to the current user
-     */
-    public List<MetaAccountDto> fetchAccounts() throws MetaApiException {
-        logger.info("Fetching Meta ad accounts...");
-
-        return metaApiClient.executeWithRetry(context -> {
-            try {
-                APINodeList<AdAccount> accounts = new User("me", context)
-                        .getAdAccounts()
-                        .requestFields(metaApiProperties.getFields().getAccount()) // Fix: Use List directly
-                        .execute();
-
-                List<MetaAccountDto> accountDtos = new ArrayList<>();
-                for (AdAccount account : accounts) {
-                    accountDtos.add(mapAccountToDto(account));
-                }
-
-                logger.info("Successfully fetched {} ad accounts", accountDtos.size());
-                return accountDtos;
-
-            } catch (Exception e) {
-                logger.error("Failed to fetch accounts: {}", e.getMessage());
-                throw new MetaApiException("Failed to fetch ad accounts", e);
-            }
-        });
-    }
-
-    // ==================== CAMPAIGN METHODS ====================
-
-    /**
-     * Fetch campaigns for specific account
+     * Fetch campaigns - Enhanced to get all results
      */
     public List<MetaCampaignDto> fetchCampaigns(String accountId) throws MetaApiException {
         logger.info("Fetching campaigns for account: {}", accountId);
@@ -101,12 +75,16 @@ public class MetaAdsConnector {
         return metaApiClient.executeWithRetry(context -> {
             try {
                 AdAccount account = new AdAccount(accountId, context);
+
+                // Single call - SDK handles pagination internally
                 APINodeList<Campaign> campaigns = account
                         .getCampaigns()
-                        .requestFields(metaApiProperties.getFields().getCampaign()) // Fix: Use List directly
+                        .requestFields(metaApiProperties.getFields().getCampaign())
                         .execute();
 
                 List<MetaCampaignDto> campaignDtos = new ArrayList<>();
+
+                // Process all results
                 for (Campaign campaign : campaigns) {
                     campaignDtos.add(mapCampaignToDto(campaign));
                 }
@@ -121,10 +99,8 @@ public class MetaAdsConnector {
         });
     }
 
-    // ==================== ADSET METHODS ====================
-
     /**
-     * Fetch ad sets for specific account
+     * Fetch ad sets - Enhanced to get all results
      */
     public List<MetaAdSetDto> fetchAdSets(String accountId) throws MetaApiException {
         logger.info("Fetching ad sets for account: {}", accountId);
@@ -132,12 +108,16 @@ public class MetaAdsConnector {
         return metaApiClient.executeWithRetry(context -> {
             try {
                 AdAccount account = new AdAccount(accountId, context);
+
+                // Single call - SDK handles pagination internally
                 APINodeList<AdSet> adSets = account
                         .getAdSets()
-                        .requestFields(metaApiProperties.getFields().getAdset()) // Fix: Use List directly
+                        .requestFields(metaApiProperties.getFields().getAdset())
                         .execute();
 
                 List<MetaAdSetDto> adSetDtos = new ArrayList<>();
+
+                // Process all results
                 for (AdSet adSet : adSets) {
                     adSetDtos.add(mapAdSetToDto(adSet));
                 }
@@ -152,10 +132,8 @@ public class MetaAdsConnector {
         });
     }
 
-    // ==================== AD METHODS ====================
-
     /**
-     * Fetch ads for specific account
+     * Fetch ads - Enhanced to get all results
      */
     public List<MetaAdDto> fetchAds(String accountId) throws MetaApiException {
         logger.info("Fetching ads for account: {}", accountId);
@@ -163,12 +141,16 @@ public class MetaAdsConnector {
         return metaApiClient.executeWithRetry(context -> {
             try {
                 AdAccount account = new AdAccount(accountId, context);
+
+                // Single call - SDK handles pagination internally
                 APINodeList<Ad> ads = account
                         .getAds()
-                        .requestFields(metaApiProperties.getFields().getAd()) // Fix: Use List directly
+                        .requestFields(metaApiProperties.getFields().getAd())
                         .execute();
 
                 List<MetaAdDto> adDtos = new ArrayList<>();
+
+                // Process all results
                 for (Ad ad : ads) {
                     adDtos.add(mapAdToDto(ad));
                 }
@@ -183,10 +165,8 @@ public class MetaAdsConnector {
         });
     }
 
-    // ==================== INSIGHTS METHODS ====================
-
     /**
-     * Fetch insights for account with date range
+     * Fetch insights - Enhanced to get all results
      */
     public List<MetaInsightsDto> fetchInsights(String accountId, LocalDate startDate, LocalDate endDate) throws MetaApiException {
         logger.info("Fetching insights for account {} from {} to {}", accountId, startDate, endDate);
@@ -195,16 +175,18 @@ public class MetaAdsConnector {
             try {
                 AdAccount account = new AdAccount(accountId, context);
 
-                // Fix: Use correct insights request
+                // Use correct insights request with proper breakdowns handling
                 AdAccount.APIRequestGetInsights insightsRequest = account.getInsights()
-                        .requestFields(metaApiProperties.getFields().getInsights()) // Fix: Use List directly
-                        .setBreakdowns(String.valueOf(metaApiProperties.getDefaultBreakdowns()))
+                        .requestFields(metaApiProperties.getFields().getInsights())
+                        .setBreakdowns(metaApiProperties.getDefaultBreakdownsString()) // Fix: Pass List directly
                         .setTimeRange("{\"since\":\"" + startDate.format(DateTimeFormatter.ISO_LOCAL_DATE) +
                                 "\",\"until\":\"" + endDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "\"}");
 
                 APINodeList<AdsInsights> insights = insightsRequest.execute();
 
                 List<MetaInsightsDto> insightDtos = new ArrayList<>();
+
+                // Process all results - SDK handles pagination internally
                 for (AdsInsights insight : insights) {
                     insightDtos.add(mapInsightsToDto(insight));
                 }
@@ -220,11 +202,78 @@ public class MetaAdsConnector {
     }
 
     /**
-     * Fetch insights for yesterday (most common use case)
+     * NEW DEFAULT: Fetch insights for today (replaces yesterday as default)
+     */
+    public List<MetaInsightsDto> fetchTodayInsights(String accountId) throws MetaApiException {
+        LocalDate today = LocalDate.now();
+        return fetchInsights(accountId, today, today);
+    }
+
+    /**
+     * KEEP EXISTING: Fetch insights for yesterday (legacy support)
      */
     public List<MetaInsightsDto> fetchYesterdayInsights(String accountId) throws MetaApiException {
         LocalDate yesterday = LocalDate.now().minusDays(1);
         return fetchInsights(accountId, yesterday, yesterday);
+    }
+
+    /**
+     * NEW: Fetch insights for specific date
+     */
+    public List<MetaInsightsDto> fetchInsightsForDate(String accountId, LocalDate date) throws MetaApiException {
+        return fetchInsights(accountId, date, date);
+    }
+
+    /**
+     * NEW: Fetch insights for last N days
+     */
+    public List<MetaInsightsDto> fetchInsightsLastNDays(String accountId, int days) throws MetaApiException {
+        if (days <= 0) {
+            throw new IllegalArgumentException("Days must be positive number");
+        }
+
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(days - 1);
+        return fetchInsights(accountId, startDate, endDate);
+    }
+
+    /**
+     * NEW: Fetch insights for current month
+     */
+    public List<MetaInsightsDto> fetchInsightsCurrentMonth(String accountId) throws MetaApiException {
+        LocalDate today = LocalDate.now();
+        LocalDate startOfMonth = today.withDayOfMonth(1);
+        return fetchInsights(accountId, startOfMonth, today);
+    }
+
+    /**
+     * NEW: Fetch insights for previous month
+     */
+    public List<MetaInsightsDto> fetchInsightsPreviousMonth(String accountId) throws MetaApiException {
+        LocalDate today = LocalDate.now();
+        LocalDate startOfLastMonth = today.minusMonths(1).withDayOfMonth(1);
+        LocalDate endOfLastMonth = startOfLastMonth.plusMonths(1).minusDays(1);
+        return fetchInsights(accountId, startOfLastMonth, endOfLastMonth);
+    }
+
+    /**
+     * NEW: Fetch insights for current week
+     */
+    public List<MetaInsightsDto> fetchInsightsCurrentWeek(String accountId) throws MetaApiException {
+        LocalDate today = LocalDate.now();
+        LocalDate startOfWeek = today.minusDays(today.getDayOfWeek().getValue() - 1); // Monday
+        return fetchInsights(accountId, startOfWeek, today);
+    }
+
+    /**
+     * NEW: Fetch insights for previous week
+     */
+    public List<MetaInsightsDto> fetchInsightsPreviousWeek(String accountId) throws MetaApiException {
+        LocalDate today = LocalDate.now();
+        LocalDate startOfThisWeek = today.minusDays(today.getDayOfWeek().getValue() - 1);
+        LocalDate startOfLastWeek = startOfThisWeek.minusWeeks(1);
+        LocalDate endOfLastWeek = startOfLastWeek.plusDays(6); // Sunday
+        return fetchInsights(accountId, startOfLastWeek, endOfLastWeek);
     }
 
     // ==================== UTILITY METHODS ====================

@@ -323,21 +323,50 @@ public class MetaAdsService {
     }
 
     /**
-     * Sync yesterday's performance data for all accounts
+     /**
+     * NEW DEFAULT: Sync performance data for today (replaces yesterday as default)
+     */
+    @Transactional
+    public void syncTodayPerformanceData() throws MetaApiException {
+        logger.info("Starting today performance data sync for all accounts...");
+
+        try {
+            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchBusinessAccounts(); // Use business accounts
+            LocalDate today = LocalDate.now();
+
+            for (MetaAccountDto accountDto : accountDtos) {
+                try {
+                    syncPerformanceData(accountDto.getId(), today, today);
+                } catch (Exception e) {
+                    logger.error("Failed to sync today performance data for account {}: {}",
+                            accountDto.getId(), e.getMessage());
+                }
+            }
+
+            logger.info("Today performance data sync completed");
+
+        } catch (Exception e) {
+            logger.error("Today performance data sync failed: {}", e.getMessage());
+            throw new MetaApiException("Today performance data sync failed", e);
+        }
+    }
+
+    /**
+     * KEEP EXISTING: Sync yesterday's performance data (legacy support)
      */
     @Transactional
     public void syncYesterdayPerformanceData() throws MetaApiException {
         logger.info("Starting yesterday performance data sync for all accounts...");
 
         try {
-            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchAccounts();
+            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchBusinessAccounts(); // Use business accounts
             LocalDate yesterday = LocalDate.now().minusDays(1);
 
             for (MetaAccountDto accountDto : accountDtos) {
                 try {
                     syncPerformanceData(accountDto.getId(), yesterday, yesterday);
                 } catch (Exception e) {
-                    logger.error("Failed to sync performance data for account {}: {}",
+                    logger.error("Failed to sync yesterday performance data for account {}: {}",
                             accountDto.getId(), e.getMessage());
                 }
             }
@@ -351,24 +380,163 @@ public class MetaAdsService {
     }
 
     /**
-     * Full sync: hierarchy + performance data
+     * NEW: Sync performance data for specific date
+     */
+    @Transactional
+    public void syncPerformanceDataForDate(LocalDate date) throws MetaApiException {
+        logger.info("Starting performance data sync for date: {}", date);
+
+        try {
+            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchBusinessAccounts();
+
+            for (MetaAccountDto accountDto : accountDtos) {
+                try {
+                    syncPerformanceData(accountDto.getId(), date, date);
+                } catch (Exception e) {
+                    logger.error("Failed to sync performance data for account {} on date {}: {}",
+                            accountDto.getId(), date, e.getMessage());
+                }
+            }
+
+            logger.info("Performance data sync completed for date: {}", date);
+        } catch (Exception e) {
+            logger.error("Performance data sync failed for date {}: {}", date, e.getMessage());
+            throw new MetaApiException("Performance sync failed for date: " + date, e);
+        }
+    }
+
+    /**
+     * NEW: Sync performance data for date range
+     */
+    @Transactional
+    public void syncPerformanceDataForDateRange(LocalDate startDate, LocalDate endDate) throws MetaApiException {
+        logger.info("Starting performance data sync for date range: {} to {}", startDate, endDate);
+
+        try {
+            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchBusinessAccounts();
+
+            for (MetaAccountDto accountDto : accountDtos) {
+                try {
+                    syncPerformanceData(accountDto.getId(), startDate, endDate);
+                } catch (Exception e) {
+                    logger.error("Failed to sync performance data for account {} in range {} to {}: {}",
+                            accountDto.getId(), startDate, endDate, e.getMessage());
+                }
+            }
+
+            logger.info("Performance data sync completed for date range: {} to {}", startDate, endDate);
+        } catch (Exception e) {
+            logger.error("Performance data sync failed for date range {} to {}: {}",
+                    startDate, endDate, e.getMessage());
+            throw new MetaApiException("Performance sync failed for date range: " + startDate + " to " + endDate, e);
+        }
+    }
+
+    /**
+     * NEW: Sync performance data for last N days
+     */
+    @Transactional
+    public void syncPerformanceDataLastNDays(int days) throws MetaApiException {
+        if (days <= 0) {
+            throw new IllegalArgumentException("Days must be positive number");
+        }
+
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(days - 1);
+
+        logger.info("Starting performance data sync for last {} days ({} to {})", days, startDate, endDate);
+        syncPerformanceDataForDateRange(startDate, endDate);
+    }
+
+    /**
+     * NEW: Sync performance data for current month
+     */
+    @Transactional
+    public void syncPerformanceDataCurrentMonth() throws MetaApiException {
+        LocalDate today = LocalDate.now();
+        LocalDate startOfMonth = today.withDayOfMonth(1);
+
+        logger.info("Starting performance data sync for current month ({} to {})", startOfMonth, today);
+        syncPerformanceDataForDateRange(startOfMonth, today);
+    }
+
+    /**
+     * NEW: Sync performance data for previous month
+     */
+    @Transactional
+    public void syncPerformanceDataPreviousMonth() throws MetaApiException {
+        LocalDate today = LocalDate.now();
+        LocalDate startOfLastMonth = today.minusMonths(1).withDayOfMonth(1);
+        LocalDate endOfLastMonth = startOfLastMonth.plusMonths(1).minusDays(1);
+
+        logger.info("Starting performance data sync for previous month ({} to {})",
+                startOfLastMonth, endOfLastMonth);
+        syncPerformanceDataForDateRange(startOfLastMonth, endOfLastMonth);
+    }
+
+    /**
+     * UPDATED: Enhanced full sync with flexible date option (default: today)
      */
     @Transactional
     public void performFullSync() throws MetaApiException {
-        logger.info("Starting full sync (hierarchy + performance data)...");
+        logger.info("Starting full sync (hierarchy + today performance data)...");
 
         try {
             // 1. Sync account hierarchy first
             syncAccountHierarchy();
 
-            // 2. Sync yesterday's performance data
-            syncYesterdayPerformanceData();
+            // 2. Sync today's performance data (NEW DEFAULT)
+            syncTodayPerformanceData();
 
             logger.info("Full sync completed successfully");
 
         } catch (Exception e) {
             logger.error("Full sync failed: {}", e.getMessage());
             throw new MetaApiException("Full sync failed", e);
+        }
+    }
+
+    /**
+     * NEW: Full sync with specific date
+     */
+    @Transactional
+    public void performFullSyncForDate(LocalDate date) throws MetaApiException {
+        logger.info("Starting full sync (hierarchy + performance data for {})...", date);
+
+        try {
+            // 1. Sync account hierarchy first
+            syncAccountHierarchy();
+
+            // 2. Sync performance data for specific date
+            syncPerformanceDataForDate(date);
+
+            logger.info("Full sync completed successfully for date: {}", date);
+
+        } catch (Exception e) {
+            logger.error("Full sync failed for date {}: {}", date, e.getMessage());
+            throw new MetaApiException("Full sync failed for date: " + date, e);
+        }
+    }
+
+    /**
+     * NEW: Full sync with date range
+     */
+    @Transactional
+    public void performFullSyncForDateRange(LocalDate startDate, LocalDate endDate) throws MetaApiException {
+        logger.info("Starting full sync (hierarchy + performance data for {} to {})...", startDate, endDate);
+
+        try {
+            // 1. Sync account hierarchy first
+            syncAccountHierarchy();
+
+            // 2. Sync performance data for date range
+            syncPerformanceDataForDateRange(startDate, endDate);
+
+            logger.info("Full sync completed successfully for date range: {} to {}", startDate, endDate);
+
+        } catch (Exception e) {
+            logger.error("Full sync failed for date range {} to {}: {}", startDate, endDate, e.getMessage());
+            throw new MetaApiException("Full sync failed for date range: " + startDate + " to " + endDate, e);
         }
     }
 
@@ -397,7 +565,7 @@ public class MetaAdsService {
     private boolean checkMetaApiConnection() {
         try {
             // Try to fetch minimal data to test connection
-            List<MetaAccountDto> accounts = metaAdsConnector.fetchAccounts();
+            List<MetaAccountDto> accounts = metaAdsConnector.fetchBusinessAccounts();
             return accounts != null; // Connection works if we get any response
         } catch (Exception e) {
             logger.debug("Meta API connection test failed: {}", e.getMessage());

@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Service
@@ -20,14 +21,15 @@ public class DataSyncScheduler {
     private MetaAdsService metaAdsService;
 
     /**
-     * Daily performance data sync at 2:00 AM
+     * UPDATED: Daily performance data sync at 2:00 AM (now defaults to TODAY)
      */
     @Scheduled(cron = "${scheduler.daily-job-cron:0 0 2 * * ?}")
     public void syncDailyPerformanceData() {
         logger.info("Starting daily performance data sync at {}", LocalDateTime.now());
 
         try {
-            metaAdsService.syncYesterdayPerformanceData();
+            // CHANGED: Use TODAY instead of YESTERDAY as default
+            metaAdsService.syncTodayPerformanceData();
             logger.info("Daily performance data sync completed successfully");
         } catch (Exception e) {
             logger.error("Daily performance data sync failed: {}", e.getMessage(), e);
@@ -35,7 +37,22 @@ public class DataSyncScheduler {
     }
 
     /**
-     * Weekly hierarchy sync on Sunday at 1:00 AM
+     * NEW: Alternative daily sync for yesterday (if needed)
+     */
+    @Scheduled(cron = "${scheduler.yesterday-job-cron:-}") // Disabled by default
+    public void syncYesterdayPerformanceData() {
+        logger.info("Starting yesterday performance data sync at {}", LocalDateTime.now());
+
+        try {
+            metaAdsService.syncYesterdayPerformanceData();
+            logger.info("Yesterday performance data sync completed successfully");
+        } catch (Exception e) {
+            logger.error("Yesterday performance data sync failed: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * KEEP EXISTING: Weekly hierarchy sync on Sunday at 1:00 AM
      */
     @Scheduled(cron = "${scheduler.hierarchy-job-cron:0 0 1 ? * SUN}")
     public void syncAccountHierarchy() {
@@ -50,16 +67,45 @@ public class DataSyncScheduler {
     }
 
     /**
-     * Manual sync trigger for testing
+     * UPDATED: Manual sync trigger (now uses TODAY as default)
      */
     public void triggerManualSync() {
         logger.info("Manual sync triggered at {}", LocalDateTime.now());
 
         try {
+            // CHANGED: performFullSync() now defaults to TODAY
             metaAdsService.performFullSync();
             logger.info("Manual sync completed successfully");
         } catch (Exception e) {
             logger.error("Manual sync failed: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * NEW: Manual sync for specific date
+     */
+    public void triggerManualSyncForDate(LocalDate date) {
+        logger.info("Manual sync triggered for date {} at {}", date, LocalDateTime.now());
+
+        try {
+            metaAdsService.performFullSyncForDate(date);
+            logger.info("Manual sync completed successfully for date: {}", date);
+        } catch (Exception e) {
+            logger.error("Manual sync failed for date {}: {}", date, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * NEW: Manual sync for date range
+     */
+    public void triggerManualSyncForDateRange(LocalDate startDate, LocalDate endDate) {
+        logger.info("Manual sync triggered for range {} to {} at {}", startDate, endDate, LocalDateTime.now());
+
+        try {
+            metaAdsService.performFullSyncForDateRange(startDate, endDate);
+            logger.info("Manual sync completed successfully for range: {} to {}", startDate, endDate);
+        } catch (Exception e) {
+            logger.error("Manual sync failed for range {} to {}: {}", startDate, endDate, e.getMessage(), e);
         }
     }
 }
