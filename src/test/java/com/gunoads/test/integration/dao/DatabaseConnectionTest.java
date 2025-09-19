@@ -2,7 +2,7 @@ package com.gunoads.test.integration.dao;
 
 import com.gunoads.config.DatabaseHealthChecker;
 import com.gunoads.test.integration.BaseIntegrationTest;
-import com.gunoads.util.ConnectionManager;
+import com.gunoads.config.ConnectionManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;

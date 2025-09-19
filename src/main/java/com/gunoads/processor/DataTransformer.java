@@ -454,7 +454,7 @@ public class DataTransformer {
 
     // Safe conversion utility methods - UNCHANGED
     private String safeGetString(String value) {
-        return value != null && !value.trim().isEmpty() ? value.trim() : null;
+        return value != null && !value.trim().isEmpty() ? value.trim() : "";
     }
 
     private String safeGetString(String value, String defaultValue) {

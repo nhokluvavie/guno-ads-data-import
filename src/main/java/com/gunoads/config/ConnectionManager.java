@@ -1,4 +1,4 @@
-package com.gunoads.util;
+package com.gunoads.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
