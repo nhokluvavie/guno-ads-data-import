@@ -24,7 +24,7 @@ public class TestDataFactory {
         dto.setAccountId("123456789");
         dto.setAccountName("Test Account");
         dto.setCurrency("USD");
-        dto.setTimezoneId(1);
+        dto.setTimezoneId(1L);
         dto.setTimezoneName("America/New_York");
         dto.setAccountStatus("ACTIVE");
         dto.setBusinessId("business_123");
@@ -135,7 +135,7 @@ public class TestDataFactory {
         account.setPlatformId(META_PLATFORM);
         account.setAccountName("Test Account");
         account.setCurrency("USD");
-        account.setTimezoneId(1);
+        account.setTimezoneId(1L);
         account.setTimezoneName("America/New_York");
         account.setAccountStatus("ACTIVE");
         account.setBusinessCountryCode(1);

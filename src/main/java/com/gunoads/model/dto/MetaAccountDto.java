@@ -18,7 +18,7 @@ public class MetaAccountDto {
     private String currency;
 
     @JsonProperty("timezone_id")
-    private Integer timezoneId;
+    private Long timezoneId;
 
     @JsonProperty("timezone_name")
     private String timezoneName;

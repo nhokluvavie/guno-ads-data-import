@@ -41,7 +41,7 @@ public class DataTransformer {
             // Basic info
             account.setAccountName(safeGetString(dto.getAccountName()));
             account.setCurrency(safeGetString(dto.getCurrency()));
-            account.setTimezoneId(safeGetInteger(dto.getTimezoneId(), 0));
+            account.setTimezoneId(safeGetLong(dto.getTimezoneId(), 0L));
             account.setTimezoneName(safeGetString(dto.getTimezoneName()));
             account.setAccountStatus(safeGetString(dto.getAccountStatus()));
             account.setDisableReason(safeGetString(dto.getDisableReason()));
@@ -172,7 +172,7 @@ public class DataTransformer {
             adSet.setDailyBudget(parseBigDecimal(dto.getDailyBudget()));
             adSet.setLifetimeBudget(parseBigDecimal(dto.getLifetimeBudget()));
             adSet.setBudgetRemaining(parseBigDecimal(dto.getBudgetRemaining()));
-            adSet.setBidAmount(parseBigDecimal(dto.getBidAmount()));
+            adSet.setBidAmount(parseBigDecimal(dto.getBidAmount().toString()));
             adSet.setBidStrategy(safeGetString(dto.getBidStrategy()));
 
             // Optimization

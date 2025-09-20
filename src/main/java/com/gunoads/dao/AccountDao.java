@@ -126,7 +126,7 @@ public class AccountDao extends StandardDao<Account, String> {
             account.setPlatformId(rs.getString("platform_id"));
             account.setAccountName(rs.getString("account_name"));
             account.setCurrency(rs.getString("currency"));
-            account.setTimezoneId(rs.getInt("timezone_id"));
+            account.setTimezoneId(rs.getLong("timezone_id"));
             account.setTimezoneName(rs.getString("timezone_name"));
             account.setAccountStatus(rs.getString("account_status"));
             account.setDisableReason(rs.getString("disable_reason"));

@@ -43,7 +43,7 @@ public class MetaAdSetDto {
     private String billingEvent;
 
     @JsonProperty("bid_amount")
-    private String bidAmount;
+    private Long bidAmount;
 
     @JsonProperty("bid_strategy")
     private String bidStrategy;

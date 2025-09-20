@@ -22,7 +22,7 @@ public class Account {
     private String currency;
 
     @NotNull
-    private Integer timezoneId;
+    private Long timezoneId;
 
     private String timezoneName;
     private String accountStatus;

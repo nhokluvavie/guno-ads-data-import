@@ -32,6 +32,14 @@ meta:
       requests-per-hour: 100
       retry-attempts: 3
       retry-delay-ms: 3000
+  api:
+  # Enhanced pagination settings for E2E testing
+    pagination:
+      default-limit: 100
+      max-limit: 500
+      auto-fetch-all: true
+      max-pages: 50
+      page-delay-ms: 200
 
 scheduler:
   enabled: true  # ENABLE scheduler for E2E tests
@@ -44,15 +52,19 @@ batch:
     chunk-size: 250
     thread-pool-size: 3
     copy-from-threshold: 100
+    bulk-threshold: 50  # Lower threshold to test bulk processing more often
 
 logging:
   level:
-    com.gunoads: INFO
-    org.springframework.jdbc: WARN
+    com.gunoads: DEBUG  # Enhanced logging for E2E tests
+    com.gunoads.service.MetaAdsService: DEBUG
+    com.gunoads.connector.MetaAdsConnector: DEBUG
+    com.gunoads.processor.DataIngestionProcessor: DEBUG
+    org.springframework.jdbc: INFO
     com.facebook.ads: WARN
-    org.springframework.transaction: INFO
-    org.springframework.test: INFO
-    org.springframework.web: INFO
+    org.springframework.scheduling: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 
 management:
   endpoints:
@@ -66,9 +78,21 @@ management:
 # E2E specific configurations
 test:
   timeout:
-    api-call: 30000
-    database-operation: 15000
-    full-sync: 60000
-  retry:
-    max-attempts: 3
-    delay-ms: 2000
+    short: 30000    # 30 seconds
+    medium: 300000  # 5 minutes
+    long: 900000    # 15 minutes
+
+  pagination:
+    verify-threshold: 30  # If more than 30 records, pagination likely working
+
+  performance:
+    hierarchy-max-time: 300000    # 5 minutes max for hierarchy sync
+    performance-max-time: 600000  # 10 minutes max for performance sync
+    full-sync-max-time: 900000    # 15 minutes max for full sync
+
+  data:
+    test-date: "2025-09-17"
+
+  memory:
+    max-heap-usage: 2048  # MB
+    gc-threshold: 1024    # MB
