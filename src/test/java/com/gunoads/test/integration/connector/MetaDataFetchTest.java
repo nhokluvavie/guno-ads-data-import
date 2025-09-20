@@ -35,7 +35,7 @@ class MetaDataFetchTest extends BaseIntegrationTest {
     @Test
     void shouldFetchUserAccounts() {
         // When
-        List<MetaAccountDto> accounts = connector.fetchAccounts();
+        List<MetaAccountDto> accounts = connector.fetchBusinessAccounts();
 
         // Then
         assertThat(accounts).isNotNull();
