@@ -21,9 +21,9 @@ public class Advertisement {
     private String adStatus;
     private String configuredStatus;
     private String effectiveStatus;
-    private String creativeId;
-    private String creativeName;
-    private String creativeType;
+    private String creativeId = "unknown";
+    private String creativeName = "unknown";
+    private String creativeType = "unknown";
     private String callToActionType;
 
     @NotNull

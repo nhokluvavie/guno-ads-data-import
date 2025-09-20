@@ -35,16 +35,16 @@ public class MetaAdsConnector {
     // ==================== ACCOUNT METHODS ====================
 
     /**
-     * Fetch business accounts - FIXED: Auto-pagination enabled
+     * Fetch business accounts - UPDATED: Filter only ACTIVE accounts
      */
     public List<MetaAccountDto> fetchBusinessAccounts() throws MetaApiException {
-        logger.info("Fetching ad accounts from business: {}", metaAdsConfig.getBusinessId());
+        logger.info("Fetching ACTIVE ad accounts from business: {}", metaAdsConfig.getBusinessId());
 
         return metaApiClient.executeWithRetry(context -> {
             try {
                 Business business = new Business(metaAdsConfig.getBusinessId(), context);
 
-                // FIXED: Enable auto-pagination (using correct current format)
+                // UPDATED: Fetch ALL accounts first (no API-level filtering due to SDK compatibility)
                 APINodeList<AdAccount> accounts = business
                         .getOwnedAdAccounts()
                         .requestFields(metaApiProperties.getFields().getAccount())
@@ -52,41 +52,54 @@ public class MetaAdsConnector {
                         .withAutoPaginationIterator(true);
 
                 List<MetaAccountDto> accountDtos = new ArrayList<>();
-                int pageCount = 1;
                 int totalCount = 0;
+                int activeCount = 0;
 
-                // FIXED: Iterator will automatically fetch all pages
+                // Iterator will automatically fetch all pages
                 for (AdAccount account : accounts) {
-                    accountDtos.add(mapAccountToDto(account));
+                    MetaAccountDto dto = mapAccountToDto(account);
                     totalCount++;
+
+                    // FIXED: Filter for ACTIVE accounts in Java code (account_status = 1)
+                    if (isAccountActive(dto)) {
+                        accountDtos.add(dto);
+                        activeCount++;
+                    }
 
                     // Log progress every 50 records
                     if (totalCount % 50 == 0) {
-                        logger.debug("Processed {} accounts from API...", totalCount);
+                        logger.debug("Processed {} accounts ({} active) from API...", totalCount, activeCount);
                     }
                 }
 
-                logger.info("✅ Successfully fetched {} ad accounts from business (auto-pagination)", accountDtos.size());
+                logger.info("✅ Successfully fetched {} ACTIVE ad accounts from business (filtered from {} total)",
+                        activeCount, totalCount);
+
+                // Log filtering summary
+                logFilteringSummary("ACCOUNTS", "business", totalCount, activeCount);
+
                 return accountDtos;
 
             } catch (Exception e) {
-                logger.error("❌ Failed to fetch business accounts: {}", e.getMessage());
-                throw new MetaApiException("Failed to fetch business ad accounts", e);
+                logger.error("❌ Failed to fetch ACTIVE business accounts: {}", e.getMessage());
+                throw new MetaApiException("Failed to fetch ACTIVE business ad accounts", e);
             }
         });
     }
 
+// ==================== CAMPAIGN METHODS (UPDATED WITH ACTIVE FILTERING) ====================
+
     /**
-     * Fetch campaigns - FIXED: Auto-pagination enabled
+     * Fetch campaigns - UPDATED: Filter only ACTIVE campaigns
      */
     public List<MetaCampaignDto> fetchCampaigns(String accountId) throws MetaApiException {
-        logger.info("Fetching campaigns for account: {}", accountId);
+        logger.info("Fetching ACTIVE campaigns for account: {}", accountId);
 
         return metaApiClient.executeWithRetry(context -> {
             try {
                 AdAccount account = new AdAccount(accountId, context);
 
-                // FIXED: Enable auto-pagination (using correct current format)
+                // UPDATED: Enable auto-pagination (filter ACTIVE campaigns in code due to SDK compatibility)
                 APINodeList<Campaign> campaigns = account
                         .getCampaigns()
                         .requestFields(metaApiProperties.getFields().getCampaign())
@@ -95,40 +108,48 @@ public class MetaAdsConnector {
 
                 List<MetaCampaignDto> campaignDtos = new ArrayList<>();
                 int totalCount = 0;
+                int activeCount = 0;
 
-                // FIXED: Iterator will automatically fetch all pages
+                // Iterator will automatically fetch all pages
                 for (Campaign campaign : campaigns) {
-                    campaignDtos.add(mapCampaignToDto(campaign));
+                    MetaCampaignDto dto = mapCampaignToDto(campaign);
+
+                    // Double-check status at DTO level (additional safety)
+                    if ("ACTIVE".equals(dto.getStatus())) {
+                        campaignDtos.add(dto);
+                        activeCount++;
+                    }
                     totalCount++;
 
                     // Log progress every 100 records
                     if (totalCount % 100 == 0) {
-                        logger.debug("Processed {} campaigns for account {}...", totalCount, accountId);
+                        logger.debug("Processed {} campaigns ({} active) for account {}...",
+                                totalCount, activeCount, accountId);
                     }
                 }
 
-                logger.info("✅ Successfully fetched {} campaigns for account {} (auto-pagination)",
-                        campaignDtos.size(), accountId);
+                logger.info("✅ Successfully fetched {} ACTIVE campaigns for account {} (filtered from {} total)",
+                        activeCount, accountId, totalCount);
                 return campaignDtos;
 
             } catch (Exception e) {
-                logger.error("❌ Failed to fetch campaigns for account {}: {}", accountId, e.getMessage());
-                throw new MetaApiException("Failed to fetch campaigns", e);
+                logger.error("❌ Failed to fetch ACTIVE campaigns for account {}: {}", accountId, e.getMessage());
+                throw new MetaApiException("Failed to fetch ACTIVE campaigns", e);
             }
         });
     }
 
     /**
-     * Fetch ad sets - FIXED: Auto-pagination enabled
+     * Fetch ad sets - UPDATED: Filter only ACTIVE ad sets
      */
     public List<MetaAdSetDto> fetchAdSets(String accountId) throws MetaApiException {
-        logger.info("Fetching ad sets for account: {}", accountId);
+        logger.info("Fetching ACTIVE ad sets for account: {}", accountId);
 
         return metaApiClient.executeWithRetry(context -> {
             try {
                 AdAccount account = new AdAccount(accountId, context);
 
-                // FIXED: Enable auto-pagination to get ALL results
+                // UPDATED: Enable auto-pagination (filter ACTIVE ad sets in code due to SDK compatibility)
                 APINodeList<AdSet> adSets = account
                         .getAdSets()
                         .requestFields(metaApiProperties.getFields().getAdset())
@@ -137,40 +158,48 @@ public class MetaAdsConnector {
 
                 List<MetaAdSetDto> adSetDtos = new ArrayList<>();
                 int totalCount = 0;
+                int activeCount = 0;
 
-                // FIXED: Iterator will automatically fetch all pages
+                // Iterator will automatically fetch all pages
                 for (AdSet adSet : adSets) {
-                    adSetDtos.add(mapAdSetToDto(adSet));
+                    MetaAdSetDto dto = mapAdSetToDto(adSet);
+
+                    // Double-check status at DTO level (additional safety)
+                    if ("ACTIVE".equals(dto.getStatus())) {
+                        adSetDtos.add(dto);
+                        activeCount++;
+                    }
                     totalCount++;
 
                     // Log progress every 100 records
                     if (totalCount % 100 == 0) {
-                        logger.debug("Processed {} ad sets for account {}...", totalCount, accountId);
+                        logger.debug("Processed {} ad sets ({} active) for account {}...",
+                                totalCount, activeCount, accountId);
                     }
                 }
 
-                logger.info("✅ Successfully fetched {} ad sets for account {} (auto-pagination)",
-                        adSetDtos.size(), accountId);
+                logger.info("✅ Successfully fetched {} ACTIVE ad sets for account {} (filtered from {} total)",
+                        activeCount, accountId, totalCount);
                 return adSetDtos;
 
             } catch (Exception e) {
-                logger.error("❌ Failed to fetch ad sets for account {}: {}", accountId, e.getMessage());
-                throw new MetaApiException("Failed to fetch ad sets", e);
+                logger.error("❌ Failed to fetch ACTIVE ad sets for account {}: {}", accountId, e.getMessage());
+                throw new MetaApiException("Failed to fetch ACTIVE ad sets", e);
             }
         });
     }
 
     /**
-     * Fetch ads - FIXED: Auto-pagination enabled
+     * Fetch ads - UPDATED: Filter only ACTIVE ads
      */
     public List<MetaAdDto> fetchAds(String accountId) throws MetaApiException {
-        logger.info("Fetching ads for account: {}", accountId);
+        logger.info("Fetching ACTIVE ads for account: {}", accountId);
 
         return metaApiClient.executeWithRetry(context -> {
             try {
                 AdAccount account = new AdAccount(accountId, context);
 
-                // FIXED: Enable auto-pagination (using correct current format)
+                // UPDATED: Enable auto-pagination (filter ACTIVE ads in code due to SDK compatibility)
                 APINodeList<Ad> ads = account
                         .getAds()
                         .requestFields(metaApiProperties.getFields().getAd())
@@ -179,25 +208,33 @@ public class MetaAdsConnector {
 
                 List<MetaAdDto> adDtos = new ArrayList<>();
                 int totalCount = 0;
+                int activeCount = 0;
 
-                // FIXED: Iterator will automatically fetch all pages
+                // Iterator will automatically fetch all pages
                 for (Ad ad : ads) {
-                    adDtos.add(mapAdToDto(ad));
+                    MetaAdDto dto = mapAdToDto(ad);
+
+                    // Double-check status at DTO level (additional safety)
+                    if ("ACTIVE".equals(dto.getStatus())) {
+                        adDtos.add(dto);
+                        activeCount++;
+                    }
                     totalCount++;
 
-                    // Log progress every 200 records
-                    if (totalCount % 200 == 0) {
-                        logger.debug("Processed {} ads for account {}...", totalCount, accountId);
+                    // Log progress every 100 records
+                    if (totalCount % 100 == 0) {
+                        logger.debug("Processed {} ads ({} active) for account {}...",
+                                totalCount, activeCount, accountId);
                     }
                 }
 
-                logger.info("✅ Successfully fetched {} ads for account {} (auto-pagination)",
-                        adDtos.size(), accountId);
+                logger.info("✅ Successfully fetched {} ACTIVE ads for account {} (filtered from {} total)",
+                        activeCount, accountId, totalCount);
                 return adDtos;
 
             } catch (Exception e) {
-                logger.error("❌ Failed to fetch ads for account {}: {}", accountId, e.getMessage());
-                throw new MetaApiException("Failed to fetch ads", e);
+                logger.error("❌ Failed to fetch ACTIVE ads for account {}: {}", accountId, e.getMessage());
+                throw new MetaApiException("Failed to fetch ACTIVE ads", e);
             }
         });
     }
@@ -419,5 +456,59 @@ public class MetaAdsConnector {
         dto.setFrequency(insight.getFieldFrequency());
 
         return dto;
+    }
+
+    /**
+     * Check if account is active (account_status = 1)
+     */
+    private boolean isAccountActive(MetaAccountDto account) {
+        // Meta API returns account_status as Integer: 1 = ACTIVE, 101 = RESTRICTED, etc.
+        String status = account.getAccountStatus();
+        if (status == null) return false;
+
+        try {
+            int statusCode = Integer.parseInt(status);
+            boolean isActive = (statusCode == 1); // Only status 1 is considered ACTIVE
+
+            if (!isActive) {
+                logger.debug("Account {} filtered out: status={} ({})",
+                        account.getId(), statusCode, getAccountStatusName(statusCode));
+            }
+
+            return isActive;
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid account status format for account {}: {}", account.getId(), status);
+            return false;
+        }
+    }
+
+    /**
+     * Get human-readable account status name
+     */
+    private String getAccountStatusName(int statusCode) {
+        switch (statusCode) {
+            case 1: return "ACTIVE";
+            case 2: return "DISABLED";
+            case 3: return "UNSETTLED";
+            case 7: return "PENDING_RISK_REVIEW";
+            case 8: return "PENDING_SETTLEMENT";
+            case 9: return "IN_GRACE_PERIOD";
+            case 100: return "PENDING_CLOSURE";
+            case 101: return "CLOSED/RESTRICTED";
+            case 201: return "ANY_ACTIVE";
+            case 202: return "ANY_CLOSED";
+            default: return "UNKNOWN_" + statusCode;
+        }
+    }
+
+// ==================== LOGGING HELPER METHODS ====================
+
+    /**
+     * Log filtering summary for debugging
+     */
+    private void logFilteringSummary(String entityType, String accountId, int total, int active) {
+        double activePercentage = total > 0 ? (active * 100.0 / total) : 0;
+        logger.info("📊 FILTERING SUMMARY for {} in account {}: {} active out of {} total ({:.1f}%)",
+                entityType, accountId, active, total, activePercentage);
     }
 }

@@ -31,9 +31,9 @@ public class MetaAdDto {
 
     @Data
     public static class Creative {
-        private String id;
-        private String name;
-        private String type;
+        private String id = "unknown";
+        private String name = "unknown";
+        private String type = "unknown";
 
         @JsonProperty("call_to_action_type")
         private String callToActionType;
