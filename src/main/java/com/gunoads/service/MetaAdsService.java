@@ -1,8 +1,11 @@
+/**
+ * MetaAdsService - Clean and Essential Version
+ * Chỉ giữ lại essential functions, loại bỏ code thừa thãi
+ */
 package com.gunoads.service;
 
 import com.gunoads.connector.MetaAdsConnector;
 import com.gunoads.processor.DataTransformer;
-import com.gunoads.processor.DataIngestionProcessor;
 import com.gunoads.dao.*;
 import com.gunoads.model.dto.*;
 import com.gunoads.model.entity.*;
@@ -10,22 +13,20 @@ import com.gunoads.exception.MetaApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PostConstruct;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.ArrayList;
 
 @Service
 public class MetaAdsService {
-
     private static final Logger logger = LoggerFactory.getLogger(MetaAdsService.class);
 
     @Autowired private MetaAdsConnector metaAdsConnector;
     @Autowired private DataTransformer dataTransformer;
-    @Autowired private DataIngestionProcessor dataProcessor;
     @Autowired private AccountDao accountDao;
     @Autowired private CampaignDao campaignDao;
     @Autowired private AdSetDao adSetDao;
@@ -33,39 +34,57 @@ public class MetaAdsService {
     @Autowired private PlacementDao placementDao;
     @Autowired private AdsReportingDao adsReportingDao;
     @Autowired private AdsProcessingDateDao adsProcessingDateDao;
+    @Autowired private SyncStateDao syncStateDao;
 
-    @Value("${batch.processing.bulk-threshold:100}")
-    private int bulkThreshold;
+    /**
+     * Initialize sync tracking
+     */
+    @PostConstruct
+    public void initializeSyncTracking() {
+        syncStateDao.initializeSyncStateTable();
+        logger.info("🔄 Sync tracking initialized");
+    }
 
     // ==================== CORE SYNC METHODS ====================
 
     /**
-     * Sync account hierarchy - Fetch ALL ACTIVE → Process ALL → Batch Insert/Update
+     * MAIN: Sync account hierarchy với incremental logic
      */
     @Transactional
     public void syncAccountHierarchy() throws MetaApiException {
-        logger.info("🔄 Starting ACTIVE account hierarchy sync");
+        logger.info("🏗️ Starting SMART account hierarchy sync");
 
         try {
-            // Step 1: Fetch ALL ACTIVE accounts
-            List<MetaAccountDto> activeAccounts = metaAdsConnector.fetchBusinessAccounts();
-            logger.info("✅ Fetched {} ACTIVE accounts", activeAccounts.size());
+            LocalDateTime syncStartTime = LocalDateTime.now();
 
-            // Step 2: Process accounts
-            List<Account> accounts = dataTransformer.transformAccounts(activeAccounts);
-            batchUpsertAccounts(accounts);
+            // Step 1: Accounts - always full sync
+            logger.info("📋 Syncing accounts...");
+            List<MetaAccountDto> accountDtos = metaAdsConnector.fetchBusinessAccounts();
 
-            // Step 3: Process hierarchy for each account
-            for (MetaAccountDto accountDto : activeAccounts) {
+            for (MetaAccountDto accountDto : accountDtos) {
+                Account account = dataTransformer.transformAccount(accountDto);
+                upsertAccount(account);
+            }
+
+            logger.info("✅ Accounts: {} processed", accountDtos.size());
+
+            // Step 2: Business objects - incremental cho mỗi account
+            for (MetaAccountDto accountDto : accountDtos) {
+                String accountId = accountDto.getId();
+                logger.info("🎯 Processing account: {}", accountId);
+
                 try {
-                    syncSingleAccountHierarchy(accountDto.getId());
+                    syncCampaignsIncremental(accountId, syncStartTime);
+                    syncAdSetsIncremental(accountId, syncStartTime);
+                    syncAdsIncremental(accountId, syncStartTime);
+
                 } catch (Exception e) {
-                    logger.error("❌ Failed to sync hierarchy for account {}: {}",
-                            accountDto.getId(), e.getMessage());
+                    logger.error("❌ Failed to sync account {}: {}", accountId, e.getMessage());
+                    syncStateDao.markSyncFailed("account_hierarchy", accountId, e.getMessage());
                 }
             }
 
-            logger.info("✅ Account hierarchy sync completed");
+            logger.info("✅ SMART hierarchy sync completed");
 
         } catch (Exception e) {
             logger.error("❌ Account hierarchy sync failed: {}", e.getMessage());
@@ -74,54 +93,33 @@ public class MetaAdsService {
     }
 
     /**
-     * Sync single account hierarchy - for E2E testing
-     */
-    @Transactional
-    public void syncSingleAccountHierarchy(String accountId) throws MetaApiException {
-        logger.info("🔄 Syncing ACTIVE hierarchy for account: {}", accountId);
-
-        try {
-            // Fetch ALL ACTIVE data for this account
-            List<MetaCampaignDto> campaigns = metaAdsConnector.fetchCampaigns(accountId);
-            List<MetaAdSetDto> adSets = metaAdsConnector.fetchAdSets(accountId);
-            List<MetaAdDto> ads = metaAdsConnector.fetchAds(accountId);
-
-            logger.info("✅ Fetched ACTIVE entities: {} campaigns, {} adsets, {} ads",
-                    campaigns.size(), adSets.size(), ads.size());
-
-            // Transform and batch upsert
-            batchUpsertCampaigns(dataTransformer.transformCampaigns(campaigns));
-            batchUpsertAdSets(dataTransformer.transformAdSets(adSets));
-            batchUpsertAdvertisements(dataTransformer.transformAdvertisements(ads));
-
-            // Generate and upsert placements
-            List<Placement> placements = generatePlacementsForAds(ads);
-            batchUpsertPlacements(placements);
-
-            logger.info("✅ Single account hierarchy sync completed: {}", accountId);
-
-        } catch (Exception e) {
-            logger.error("❌ Single account hierarchy sync failed for {}: {}", accountId, e.getMessage());
-            throw new MetaApiException("Single account hierarchy sync failed", e);
-        }
-    }
-
-    /**
-     * Sync performance data for specific date
+     * MAIN: Sync performance data (full sync cho insights)
      */
     @Transactional
     public void syncPerformanceDataForDate(LocalDate date) throws MetaApiException {
-        logger.info("📈 Starting performance data sync for date: {}", date);
+        logger.info("📊 Starting performance data sync for date: {}", date);
 
         try {
-            List<MetaAccountDto> accounts = metaAdsConnector.fetchBusinessAccounts();
+            ensureDateDimensionExists(date);
 
-            for (MetaAccountDto account : accounts) {
+            List<MetaAccountDto> accounts = metaAdsConnector.fetchBusinessAccounts();
+            logger.info("📋 Processing {} accounts for insights", accounts.size());
+
+            for (MetaAccountDto accountDto : accounts) {
                 try {
-                    syncPerformanceDataForAccountAndDate(account.getId(), date);
+                    List<MetaInsightsDto> insights = metaAdsConnector.fetchInsights(
+                            accountDto.getId(), date, date);
+
+                    if (!insights.isEmpty()) {
+                        List<AdsReporting> reporting = dataTransformer.transformInsightsList(insights);
+                        batchUpsertReporting(reporting);
+                        logger.info("✅ Account {}: {} insights processed",
+                                accountDto.getId(), insights.size());
+                    }
+
                 } catch (Exception e) {
-                    logger.error("Failed to sync performance data for account {} on {}: {}",
-                            account.getId(), date, e.getMessage());
+                    logger.error("❌ Failed insights for account {}: {}",
+                            accountDto.getId(), e.getMessage());
                 }
             }
 
@@ -129,334 +127,208 @@ public class MetaAdsService {
 
         } catch (Exception e) {
             logger.error("❌ Performance data sync failed for date {}: {}", date, e.getMessage());
-            throw new MetaApiException("Performance data sync failed for date: " + date, e);
-        }
-    }
-
-    /**
-     * Sync performance data for single account and date - for E2E testing
-     */
-    @Transactional
-    public void syncPerformanceDataForAccountAndDate(String accountId, LocalDate date) throws MetaApiException {
-        logger.info("📊 Syncing performance data for account {} on {}", accountId, date);
-
-        try {
-            // Ensure date dimension exists
-            ensureDateDimensionExists(date);
-
-            // Fetch insights
-            List<MetaInsightsDto> insights = metaAdsConnector.fetchInsights(accountId, date, date);
-            logger.info("✅ Fetched {} insights for account {}", insights.size(), accountId);
-
-            if (!insights.isEmpty()) {
-                // Transform and batch upsert
-                List<AdsReporting> reporting = dataTransformer.transformInsightsList(insights);
-                batchUpsertReporting(reporting);
-                logger.info("✅ Upserted {} reporting records", reporting.size());
-            }
-
-        } catch (Exception e) {
-            logger.error("❌ Performance data sync failed for account {} on {}: {}",
-                    accountId, date, e.getMessage());
             throw new MetaApiException("Performance data sync failed", e);
         }
     }
 
-    // ==================== CONVENIENCE METHODS FOR SCHEDULER/CONTROLLER ====================
+    // ==================== INCREMENTAL SYNC METHODS ====================
 
     /**
-     * Sync today's performance data (default)
+     * Incremental campaigns sync
      */
-    @Transactional
-    public void syncTodayPerformanceData() throws MetaApiException {
-        syncPerformanceDataForDate(LocalDate.now());
-    }
-
-    /**
-     * Sync yesterday's performance data (legacy support)
-     */
-    @Transactional
-    public void syncYesterdayPerformanceData() throws MetaApiException {
-        syncPerformanceDataForDate(LocalDate.now().minusDays(1));
-    }
-
-    /**
-     * Full sync (hierarchy + today's performance)
-     */
-    @Transactional
-    public void performFullSync() throws MetaApiException {
-        logger.info("🚀 Starting full sync (hierarchy + today performance)");
-        syncAccountHierarchy();
-        syncTodayPerformanceData();
-        logger.info("✅ Full sync completed");
-    }
-
-    /**
-     * Full sync for specific date
-     */
-    @Transactional
-    public void performFullSyncForDate(LocalDate date) throws MetaApiException {
-        logger.info("🚀 Starting full sync for date: {}", date);
-        syncAccountHierarchy();
-        syncPerformanceDataForDate(date);
-        logger.info("✅ Full sync completed for date: {}", date);
-    }
-
-    /**
-     * Full sync for date range
-     */
-    @Transactional
-    public void performFullSyncForDateRange(LocalDate startDate, LocalDate endDate) throws MetaApiException {
-        logger.info("🚀 Starting full sync for range: {} to {}", startDate, endDate);
-        syncAccountHierarchy();
-        syncPerformanceDataForDateRange(startDate, endDate);
-        logger.info("✅ Full sync completed for range: {} to {}", startDate, endDate);
-    }
-
-    /**
-     * Sync performance data for date range
-     */
-    @Transactional
-    public void syncPerformanceDataForDateRange(LocalDate startDate, LocalDate endDate) throws MetaApiException {
-        logger.info("📈 Starting performance sync for range: {} to {}", startDate, endDate);
-
+    private void syncCampaignsIncremental(String accountId, LocalDateTime syncTime) throws MetaApiException {
         try {
-            List<MetaAccountDto> accounts = metaAdsConnector.fetchBusinessAccounts();
+            boolean useIncremental = syncStateDao.canUseIncremental(SyncStateDao.ObjectType.CAMPAIGNS, accountId);
 
-            for (MetaAccountDto account : accounts) {
-                try {
-                    syncPerformanceDataForAccountAndDateRange(account.getId(), startDate, endDate);
-                } catch (Exception e) {
-                    logger.error("Failed to sync performance data for account {} in range {} to {}: {}",
-                            account.getId(), startDate, endDate, e.getMessage());
+            List<MetaCampaignDto> campaigns;
+            if (useIncremental) {
+                logger.info("📈 Incremental campaigns for account: {}", accountId);
+                campaigns = metaAdsConnector.fetchCampaignsIncremental(accountId);
+            } else {
+                logger.info("🔄 Full campaigns for account: {}", accountId);
+                campaigns = metaAdsConnector.fetchCampaigns(accountId);
+            }
+
+            for (MetaCampaignDto campaignDto : campaigns) {
+                Campaign campaign = dataTransformer.transformCampaign(campaignDto);
+                upsertCampaign(campaign);
+            }
+
+            syncStateDao.updateSyncTime(SyncStateDao.ObjectType.CAMPAIGNS, accountId, syncTime);
+            logger.info("✅ Campaigns: {} processed for account {}", campaigns.size(), accountId);
+
+        } catch (Exception e) {
+            syncStateDao.markSyncFailed(SyncStateDao.ObjectType.CAMPAIGNS, accountId, e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * Incremental adsets sync
+     */
+    private void syncAdSetsIncremental(String accountId, LocalDateTime syncTime) throws MetaApiException {
+        try {
+            boolean useIncremental = syncStateDao.canUseIncremental(SyncStateDao.ObjectType.ADSETS, accountId);
+
+            List<MetaAdSetDto> adSets;
+            if (useIncremental) {
+                logger.info("📈 Incremental adsets for account: {}", accountId);
+                adSets = metaAdsConnector.fetchAdSetsIncremental(accountId);
+            } else {
+                logger.info("🔄 Full adsets for account: {}", accountId);
+                adSets = metaAdsConnector.fetchAdSets(accountId);
+            }
+
+            for (MetaAdSetDto adSetDto : adSets) {
+                AdSet adSet = dataTransformer.transformAdSet(adSetDto);
+                upsertAdSet(adSet);
+            }
+
+            syncStateDao.updateSyncTime(SyncStateDao.ObjectType.ADSETS, accountId, syncTime);
+            logger.info("✅ AdSets: {} processed for account {}", adSets.size(), accountId);
+
+        } catch (Exception e) {
+            syncStateDao.markSyncFailed(SyncStateDao.ObjectType.ADSETS, accountId, e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * Incremental ads sync
+     */
+    private void syncAdsIncremental(String accountId, LocalDateTime syncTime) throws MetaApiException {
+        try {
+            boolean useIncremental = syncStateDao.canUseIncremental(SyncStateDao.ObjectType.ADS, accountId);
+
+            List<MetaAdDto> ads;
+            if (useIncremental) {
+                logger.info("📈 Incremental ads for account: {}", accountId);
+                ads = metaAdsConnector.fetchAdsIncremental(accountId);
+            } else {
+                logger.info("🔄 Full ads for account: {}", accountId);
+                ads = metaAdsConnector.fetchAds(accountId);
+            }
+
+            for (MetaAdDto adDto : ads) {
+                Advertisement ad = dataTransformer.transformAdvertisement(adDto);
+                upsertAd(ad);
+
+                // Extract placements
+                List<Placement> placements = extractPlacements(ad);
+                for (Placement placement : placements) {
+                    upsertPlacement(placement);
                 }
             }
 
-            logger.info("✅ Performance data sync completed for range: {} to {}", startDate, endDate);
+            syncStateDao.updateSyncTime(SyncStateDao.ObjectType.ADS, accountId, syncTime);
+            logger.info("✅ Ads: {} processed for account {}", ads.size(), accountId);
 
         } catch (Exception e) {
-            logger.error("❌ Performance data sync failed for range {} to {}: {}",
-                    startDate, endDate, e.getMessage());
-            throw new MetaApiException("Performance sync failed for date range", e);
+            syncStateDao.markSyncFailed(SyncStateDao.ObjectType.ADS, accountId, e.getMessage());
+            throw e;
         }
     }
 
-    /**
-     * Sync performance data for single account and date range
-     */
-    @Transactional
-    public void syncPerformanceDataForAccountAndDateRange(String accountId, LocalDate startDate, LocalDate endDate)
-            throws MetaApiException {
-        logger.info("📊 Syncing performance data for account {} from {} to {}",
-                accountId, startDate, endDate);
+    // ==================== UPSERT METHODS ====================
 
+    private void upsertAccount(Account account) {
         try {
-            // Ensure date dimensions exist
-            ensureDateDimensionsExist(startDate, endDate);
-
-            // Fetch insights for range
-            List<MetaInsightsDto> insights = metaAdsConnector.fetchInsights(accountId, startDate, endDate);
-            logger.info("✅ Fetched {} insights for account {} (range)", insights.size(), accountId);
-
-            if (!insights.isEmpty()) {
-                List<AdsReporting> reporting = dataTransformer.transformInsightsList(insights);
-                batchUpsertReporting(reporting);
-                logger.info("✅ Upserted {} reporting records (range)", reporting.size());
+            if (accountDao.existsById(account.getId())) {
+                accountDao.update(account);
+            } else {
+                accountDao.insert(account);
             }
-
         } catch (Exception e) {
-            logger.error("❌ Performance data sync failed for account {} from {} to {}: {}",
-                    accountId, startDate, endDate, e.getMessage());
-            throw new MetaApiException("Performance data sync failed for range", e);
+            logger.error("❌ Failed to upsert account {}: {}", account.getId(), e.getMessage());
         }
     }
 
-    /**
-     * Get sync status for controller
-     */
-    public SyncStatus getSyncStatus() {
+    private void upsertCampaign(Campaign campaign) {
         try {
-            List<MetaAccountDto> accounts = metaAdsConnector.fetchBusinessAccounts();
-            return new SyncStatus(true, "System operational", accounts.size(),
-                    LocalDate.now().toString(), System.currentTimeMillis());
+            if (campaignDao.existsById(campaign.getId())) {
+                campaignDao.update(campaign);
+            } else {
+                campaignDao.insert(campaign);
+            }
         } catch (Exception e) {
-            return new SyncStatus(false, "System error: " + e.getMessage(), 0,
-                    LocalDate.now().toString(), System.currentTimeMillis());
+            logger.error("❌ Failed to upsert campaign {}: {}", campaign.getId(), e.getMessage());
         }
     }
 
-    // ==================== BATCH UPSERT METHODS ====================
-
-    private void batchUpsertAccounts(List<Account> accounts) {
-        if (accounts.isEmpty()) return;
-        logger.info("💾 Batch upserting {} accounts", accounts.size());
-
-        if (accounts.size() >= bulkThreshold) {
-            DataIngestionProcessor.ProcessingResult result = dataProcessor.processWithUpsert(
-                    "tbl_account", accounts, this::getAccountCsvRow, getAccountCsvHeader(),
-                    new String[]{"id"}, new String[]{"account_name", "account_status"}
-            );
-            logger.info("✅ Bulk account upsert: {} records in {}ms",
-                    result.recordsProcessed, result.durationMs);
-        } else {
-            batchUpsertIndividually(accounts, accountDao::existsById, accountDao::update, accountDao::insert);
-        }
-    }
-
-    private void batchUpsertCampaigns(List<Campaign> campaigns) {
-        if (campaigns.isEmpty()) return;
-        logger.info("💾 Batch upserting {} campaigns", campaigns.size());
-
-        if (campaigns.size() >= bulkThreshold) {
-            DataIngestionProcessor.ProcessingResult result = dataProcessor.processWithUpsert(
-                    "tbl_campaign", campaigns, this::getCampaignCsvRow, getCampaignCsvHeader(),
-                    new String[]{"id"}, new String[]{"campaign_name", "cam_status"}
-            );
-            logger.info("✅ Bulk campaign upsert: {} records in {}ms",
-                    result.recordsProcessed, result.durationMs);
-        } else {
-            batchUpsertIndividually(campaigns, campaignDao::existsById, campaignDao::update, campaignDao::insert);
-        }
-    }
-
-    private void batchUpsertAdSets(List<AdSet> adSets) {
-        if (adSets.isEmpty()) return;
-        logger.info("💾 Batch upserting {} adsets", adSets.size());
-
-        if (adSets.size() >= bulkThreshold) {
-            DataIngestionProcessor.ProcessingResult result = dataProcessor.processWithUpsert(
-                    "tbl_adset", adSets, this::getAdSetCsvRow, getAdSetCsvHeader(),
-                    new String[]{"id"}, new String[]{"ad_set_name", "ad_set_status"}
-            );
-            logger.info("✅ Bulk adset upsert: {} records in {}ms",
-                    result.recordsProcessed, result.durationMs);
-        } else {
-            batchUpsertIndividually(adSets, adSetDao::existsById, adSetDao::update, adSetDao::insert);
-        }
-    }
-
-    private void batchUpsertAdvertisements(List<Advertisement> ads) {
-        if (ads.isEmpty()) return;
-        logger.info("💾 Batch upserting {} ads", ads.size());
-
-        if (ads.size() >= bulkThreshold) {
-            DataIngestionProcessor.ProcessingResult result = dataProcessor.processWithUpsert(
-                    "tbl_advertisement", ads, this::getAdCsvRow, getAdCsvHeader(),
-                    new String[]{"id"}, new String[]{"ad_name", "ad_status"}
-            );
-            logger.info("✅ Bulk ad upsert: {} records in {}ms",
-                    result.recordsProcessed, result.durationMs);
-        } else {
-            batchUpsertIndividually(ads, advertisementDao::existsById,
-                    advertisementDao::update, advertisementDao::insert);
-        }
-    }
-
-    private void batchUpsertPlacements(List<Placement> placements) {
-        if (placements.isEmpty()) return;
-        logger.info("💾 Batch upserting {} placements", placements.size());
-
-        if (placements.size() >= bulkThreshold) {
-            DataIngestionProcessor.ProcessingResult result = dataProcessor.processWithUpsert(
-                    "tbl_placement", placements, this::getPlacementCsvRow, getPlacementCsvHeader(),
-                    new String[]{"id"}, new String[]{"placement_name", "platform"}
-            );
-            logger.info("✅ Bulk placement upsert: {} records in {}ms",
-                    result.recordsProcessed, result.durationMs);
-        } else {
-            batchUpsertIndividually(placements, placementDao::existsById,
-                    placementDao::update, placementDao::insert);
-        }
-    }
-
-    private void batchUpsertReporting(List<AdsReporting> reportingData) {
-        if (reportingData.isEmpty()) return;
-        logger.info("💾 Batch upserting {} reporting records", reportingData.size());
-
+    private void upsertAdSet(AdSet adSet) {
         try {
-            adsReportingDao.batchInsert(reportingData);
-            logger.info("✅ Batch reporting insert: {} records", reportingData.size());
+            if (adSetDao.existsById(adSet.getId())) {
+                adSetDao.update(adSet);
+            } else {
+                adSetDao.insert(adSet);
+            }
         } catch (Exception e) {
-            logger.warn("Batch insert failed, using individual inserts: {}", e.getMessage());
-            int successCount = 0;
-            for (AdsReporting reporting : reportingData) {
-                try {
+            logger.error("❌ Failed to upsert adset {}: {}", adSet.getId(), e.getMessage());
+        }
+    }
+
+    private void upsertAd(Advertisement ad) {
+        try {
+            if (advertisementDao.existsById(ad.getId())) {
+                advertisementDao.update(ad);
+            } else {
+                advertisementDao.insert(ad);
+            }
+        } catch (Exception e) {
+            logger.error("❌ Failed to upsert ad {}: {}", ad.getId(), e.getMessage());
+        }
+    }
+
+    private void upsertPlacement(Placement placement) {
+        try {
+            if (placementDao.existsById(placement.getId())) {
+                placementDao.update(placement);
+            } else {
+                placementDao.insert(placement);
+            }
+        } catch (Exception e) {
+            logger.error("❌ Failed to upsert placement {}: {}", placement.getId(), e.getMessage());
+        }
+    }
+
+    // ==================== BATCH OPERATIONS ====================
+
+    private void batchUpsertReporting(List<AdsReporting> reportingList) {
+        try {
+            if (reportingList.size() > 100) {
+                // Use bulk operations for large datasets
+                adsReportingDao.batchInsert(reportingList);
+            } else {
+                // Individual operations for small datasets
+                for (AdsReporting reporting : reportingList) {
                     adsReportingDao.insert(reporting);
-                    successCount++;
-                } catch (Exception ex) {
-                    logger.error("Failed to insert reporting record: {}", ex.getMessage());
                 }
             }
-            logger.info("✅ Individual reporting insert: {}/{} successful",
-                    successCount, reportingData.size());
+            logger.info("✅ Batch upsert: {} reporting records", reportingList.size());
+        } catch (Exception e) {
+            logger.error("❌ Batch upsert failed: {}", e.getMessage());
         }
     }
 
     // ==================== HELPER METHODS ====================
 
-    private <T> void batchUpsertIndividually(List<T> entities,
-                                             java.util.function.Predicate<String> existsChecker,
-                                             java.util.function.Consumer<T> updater,
-                                             java.util.function.Consumer<T> inserter) {
-        int successCount = 0;
-        for (T entity : entities) {
-            try {
-                String id = getEntityId(entity);
-                if (existsChecker.test(id)) {
-                    updater.accept(entity);
-                } else {
-                    inserter.accept(entity);
-                }
-                successCount++;
-            } catch (Exception e) {
-                logger.error("Failed to upsert entity: {}", e.getMessage());
-            }
-        }
-        logger.info("✅ Individual upsert: {}/{} successful", successCount, entities.size());
+    private List<Placement> extractPlacements(Advertisement ad) {
+        // Simple placement extraction logic
+        return List.of(createPlacement(ad.getId(), "facebook_feed"));
     }
 
-    private String getEntityId(Object entity) {
-        if (entity instanceof Account) return ((Account) entity).getId();
-        if (entity instanceof Campaign) return ((Campaign) entity).getId();
-        if (entity instanceof AdSet) return ((AdSet) entity).getId();
-        if (entity instanceof Advertisement) return ((Advertisement) entity).getId();
-        if (entity instanceof Placement) return ((Placement) entity).getId();
-        throw new IllegalArgumentException("Unknown entity type: " + entity.getClass());
-    }
-
-    private List<Placement> generatePlacementsForAds(List<MetaAdDto> ads) {
-        List<Placement> placements = new ArrayList<>();
-        for (MetaAdDto ad : ads) {
-            placements.addAll(generatePlacementsForAd(ad.getId()));
-        }
-        return placements;
-    }
-
-    private List<Placement> generatePlacementsForAd(String adId) {
-        List<Placement> placements = new ArrayList<>();
-        String[] types = {"feed", "story", "reel", "banner"};
-        String[] platforms = {"facebook", "instagram", "messenger", "audience_network"};
-
-        for (String type : types) {
-            for (String platform : platforms) {
-                Placement placement = new Placement();
-                placement.setId(adId + "_" + platform + "_" + type);
-                placement.setAdvertisementId(adId);
-                placement.setPlacementName(platform.substring(0, 1).toUpperCase() +
-                        platform.substring(1) + " " + type.substring(0, 1).toUpperCase() + type.substring(1));
-                placement.setPlatform(platform);
-                placement.setPlacementType(type);
-                placement.setDeviceType("mobile");
-                placement.setPosition("feed");
-                placement.setIsActive(true);
-                placement.setSupportsVideo(!"banner".equals(type));
-                placement.setSupportsCarousel("feed".equals(type));
-                placement.setSupportsCollection("feed".equals(type));
-                placement.setCreatedAt(java.time.LocalDateTime.now().toString());
-                placements.add(placement);
-            }
-        }
-        return placements;
+    private Placement createPlacement(String adId, String type) {
+        Placement placement = new Placement();
+        placement.setId(adId + "_" + type);
+        placement.setAdvertisementId(adId);
+        placement.setPlacementName(type);
+        placement.setPlatform("facebook");
+        placement.setPlacementType("feed");
+        placement.setIsActive(true);
+        placement.setSupportsVideo(true);
+        placement.setSupportsCarousel(true);
+        placement.setSupportsCollection(true);
+        return placement;
     }
 
     private void ensureDateDimensionExists(LocalDate date) {
@@ -469,14 +341,6 @@ public class MetaAdsService {
             }
         } catch (Exception e) {
             logger.error("Failed to ensure date dimension for {}: {}", date, e.getMessage());
-        }
-    }
-
-    private void ensureDateDimensionsExist(LocalDate startDate, LocalDate endDate) {
-        LocalDate current = startDate;
-        while (!current.isAfter(endDate)) {
-            ensureDateDimensionExists(current);
-            current = current.plusDays(1);
         }
     }
 
@@ -494,95 +358,72 @@ public class MetaAdsService {
         dateRecord.setYear(date.getYear());
         dateRecord.setIsWeekend(date.getDayOfWeek().getValue() >= 6);
         dateRecord.setIsHoliday(false);
-        dateRecord.setHolidayName(null);
         dateRecord.setFiscalYear(date.getYear());
         dateRecord.setFiscalQuarter((date.getMonthValue() - 1) / 3 + 1);
         return dateRecord;
     }
 
-    // ==================== CSV HELPER METHODS ====================
+    // ==================== PUBLIC API METHODS ====================
 
-    private String getAccountCsvRow(Account account) {
-        return String.format("%s,%s,%s,%s,%s,%s,%s",
-                csvEscape(account.getId()), csvEscape(account.getPlatformId()),
-                csvEscape(account.getAccountName()), csvEscape(account.getCurrency()),
-                csvEscape(account.getAccountStatus()),
-                account.getAmountSpent() != null ? account.getAmountSpent().toString() : "",
-                csvEscape(account.getCreatedTime()));
+    /**
+     * Sync today's performance data
+     */
+    @Transactional
+    public void syncTodayPerformanceData() throws MetaApiException {
+        syncPerformanceDataForDate(LocalDate.now());
     }
 
-    private String getAccountCsvHeader() {
-        return "id,platform_id,account_name,currency,account_status,amount_spent,created_time";
+    /**
+     * Sync yesterday's performance data
+     */
+    @Transactional
+    public void syncYesterdayPerformanceData() throws MetaApiException {
+        syncPerformanceDataForDate(LocalDate.now().minusDays(1));
     }
 
-    private String getCampaignCsvRow(Campaign campaign) {
-        return String.format("%s,%s,%s,%s,%s,%s,%s",
-                csvEscape(campaign.getId()), csvEscape(campaign.getPlatformId()),
-                csvEscape(campaign.getCampaignName()), csvEscape(campaign.getCamStatus()),
-                csvEscape(campaign.getCamObjective()),
-                campaign.getDailyBudget() != null ? campaign.getDailyBudget().toString() : "",
-                csvEscape(campaign.getCreatedTime()));
+    /**
+     * Full sync (hierarchy + today's performance)
+     */
+    @Transactional
+    public void performFullSync() throws MetaApiException {
+        logger.info("🚀 Starting full sync");
+        syncAccountHierarchy();
+        syncTodayPerformanceData();
+        logger.info("✅ Full sync completed");
     }
 
-    private String getCampaignCsvHeader() {
-        return "id,platform_id,campaign_name,cam_status,cam_objective,daily_budget,created_time";
+    /**
+     * Force full sync cho specific account
+     */
+    @Transactional
+    public void forceFullSync(String accountId) throws MetaApiException {
+        logger.info("🔄 FORCING full sync for account: {}", accountId);
+
+        // Clear sync state to force full sync
+        syncStateDao.markSyncFailed(SyncStateDao.ObjectType.CAMPAIGNS, accountId, "Manual full sync");
+        syncStateDao.markSyncFailed(SyncStateDao.ObjectType.ADSETS, accountId, "Manual full sync");
+        syncStateDao.markSyncFailed(SyncStateDao.ObjectType.ADS, accountId, "Manual full sync");
+
+        // Run sync
+        LocalDateTime syncTime = LocalDateTime.now();
+        syncCampaignsIncremental(accountId, syncTime);
+        syncAdSetsIncremental(accountId, syncTime);
+        syncAdsIncremental(accountId, syncTime);
+
+        logger.info("✅ Force full sync completed for account: {}", accountId);
     }
 
-    private String getAdSetCsvRow(AdSet adSet) {
-        return String.format("%s,%s,%s,%s,%s,%s",
-                csvEscape(adSet.getId()), csvEscape(adSet.getCampaignId()),
-                csvEscape(adSet.getAdSetName()), csvEscape(adSet.getAdSetStatus()),
-                adSet.getDailyBudget() != null ? adSet.getDailyBudget().toString() : "",
-                csvEscape(adSet.getCreatedTime()));
+    /**
+     * Get sync status for monitoring
+     */
+    public SyncStateDao.SyncStats getSyncStats() {
+        return syncStateDao.getSyncStats();
     }
 
-    private String getAdSetCsvHeader() {
-        return "id,campaign_id,ad_set_name,ad_set_status,daily_budget,created_time";
-    }
-
-    private String getAdCsvRow(Advertisement ad) {
-        return String.format("%s,%s,%s,%s,%s,%s",
-                csvEscape(ad.getId()), csvEscape(ad.getAdsetid()),
-                csvEscape(ad.getAdName()), csvEscape(ad.getAdStatus()),
-                csvEscape(ad.getCreativeId()), csvEscape(ad.getCreatedTime()));
-    }
-
-    private String getAdCsvHeader() {
-        return "id,adsetid,ad_name,ad_status,creative_id,created_time";
-    }
-
-    private String getPlacementCsvRow(Placement placement) {
-        return String.format("%s,%s,%s,%s,%s,%s",
-                csvEscape(placement.getId()), csvEscape(placement.getAdvertisementId()),
-                csvEscape(placement.getPlacementName()), csvEscape(placement.getPlatform()),
-                csvEscape(placement.getPlacementType()), placement.getIsActive().toString());
-    }
-
-    private String getPlacementCsvHeader() {
-        return "id,advertisement_id,placement_name,platform,placement_type,is_active";
-    }
-
-    private String csvEscape(String value) {
-        if (value == null) return "";
-        return "\"" + value.replace("\"", "\"\"") + "\"";
-    }
-
-    // ==================== STATUS CLASS ====================
-
-    public static class SyncStatus {
-        public final boolean isConnected;
-        public final String message;
-        public final int accountCount;
-        public final String lastSyncDate;
-        public final long timestamp;
-
-        public SyncStatus(boolean isConnected, String message, int accountCount,
-                          String lastSyncDate, long timestamp) {
-            this.isConnected = isConnected;
-            this.message = message;
-            this.accountCount = accountCount;
-            this.lastSyncDate = lastSyncDate;
-            this.timestamp = timestamp;
-        }
+    /**
+     * Test connectivity
+     */
+    public boolean testConnectivity() {
+        return metaAdsConnector.testConnectivity();
     }
 }

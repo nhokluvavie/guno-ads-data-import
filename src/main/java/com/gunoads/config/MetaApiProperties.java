@@ -83,7 +83,7 @@ public class MetaApiProperties {
     @Data
     public static class Pagination {
         private int defaultLimit = 100;      // Increased for better throughput
-        private int maxLimit = 500;          // SDK v23.0 supports up to 500
+        private long maxLimit = 500;          // SDK v23.0 supports up to 500
         private boolean useAfterCursor = true;
         private boolean autoFetchAll = true;  // NEW: Enable auto-pagination by default
         private int maxPages = 100;          // NEW: Safety limit for auto-pagination
