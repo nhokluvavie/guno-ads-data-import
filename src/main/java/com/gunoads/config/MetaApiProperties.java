@@ -1,6 +1,9 @@
 package com.gunoads.config;
 
+import com.gunoads.connector.MetaAdsConnector;
 import lombok.Data;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -10,6 +13,8 @@ import java.util.List;
 @Component
 @ConfigurationProperties(prefix = "meta.api")
 public class MetaApiProperties {
+
+    private static final Logger logger = LoggerFactory.getLogger(MetaApiProperties.class);
 
     // API Field configurations
     private Fields fields = new Fields();
@@ -111,14 +116,14 @@ public class MetaApiProperties {
     }
 
     // NEW: Return breakdowns as List<String> for v23.0 SDK (PRIORITY METHOD)
-    public List<String> getDefaultBreakdowns() {
-        return defaultBreakdowns;
-    }
+//    public List<String> getDefaultBreakdowns() {
+//        return defaultBreakdowns;
+//    }
 
     // KEPT: String version for backward compatibility
-    public String getDefaultBreakdownsString() {
-        return String.join(",", defaultBreakdowns);
-    }
+//    public String getDefaultBreakdownsString() {
+//        return String.join(",", defaultBreakdowns);
+//    }
 
     // NEW: Enhanced breakdown configurations for different use cases
     public List<String> getDemographicBreakdowns() {
@@ -144,6 +149,88 @@ public class MetaApiProperties {
                 fields.adset != null && !fields.adset.isEmpty() &&
                 fields.ad != null && !fields.ad.isEmpty() &&
                 fields.insights != null && !fields.insights.isEmpty();
+    }
+
+    /**
+     * BATCH 1: Demographic breakdowns (age + gender) - SAFE COMBINATION
+     */
+    public List<String> getBatch1Breakdowns() {
+        return List.of("age", "gender");
+    }
+
+    /**
+     * BATCH 2: Geographic breakdowns (country + region) - SAFE COMBINATION
+     */
+    public List<String> getBatch2Breakdowns() {
+        return List.of("country", "region");
+    }
+
+    /**
+     * BATCH 3: Placement breakdowns (publisher_platform + impression_device) - SAFE COMBINATION
+     */
+    public List<String> getBatch3Breakdowns() {
+        return List.of("publisher_platform", "impression_device");
+    }
+
+    /**
+     * Get all breakdown batches for batched API calls
+     */
+    public List<List<String>> getAllBreakdownBatches() {
+        return List.of(
+                getBatch1Breakdowns(),  // demographic
+                getBatch2Breakdowns(),  // geographic
+                getBatch3Breakdowns()   // placement
+        );
+    }
+
+    /**
+     * Get breakdown batch by index (0-2)
+     */
+    public List<String> getBreakdownBatch(int batchIndex) {
+        List<List<String>> batches = getAllBreakdownBatches();
+        if (batchIndex >= 0 && batchIndex < batches.size()) {
+            return batches.get(batchIndex);
+        }
+        throw new IllegalArgumentException("Invalid batch index: " + batchIndex + ". Valid range: 0-" + (batches.size() - 1));
+    }
+
+    /**
+     * Get breakdown batch names for logging
+     */
+    public String getBatchName(int batchIndex) {
+        switch (batchIndex) {
+            case 0: return "demographic";
+            case 1: return "geographic";
+            case 2: return "placement";
+            default: return "unknown";
+        }
+    }
+
+    /**
+     * Get total number of breakdown batches
+     */
+    public int getTotalBatches() {
+        return getAllBreakdownBatches().size();
+    }
+
+    // ==================== BACKWARD COMPATIBILITY ====================
+
+    /**
+     * @deprecated Use getBatch1Breakdowns(), getBatch2Breakdowns(), getBatch3Breakdowns() instead
+     * This method is kept for backward compatibility but will cause API errors
+     */
+    @Deprecated
+    public List<String> getDefaultBreakdowns() {
+        logger.warn("⚠️  getDefaultBreakdowns() is deprecated and causes API errors. Use batched methods instead.");
+        return getBatch1Breakdowns(); // Return safe batch instead of problematic full list
+    }
+
+    /**
+     * @deprecated Use batched breakdown methods instead
+     */
+    @Deprecated
+    public String getDefaultBreakdownsString() {
+        return String.join(",", getDefaultBreakdowns());
     }
 
     public boolean isValidBreakdownConfiguration() {

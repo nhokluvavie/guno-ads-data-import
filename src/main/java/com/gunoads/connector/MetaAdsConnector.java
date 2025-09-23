@@ -9,6 +9,7 @@ import com.gunoads.config.MetaApiProperties;
 import com.gunoads.dao.SyncStateDao;
 import com.gunoads.exception.MetaApiException;
 import com.gunoads.model.dto.*;
+import com.gunoads.util.InsightsDataMerger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,7 @@ public class MetaAdsConnector {
     @Autowired private MetaApiProperties metaApiProperties;
     @Autowired private MetaApiClient metaApiClient;
     @Autowired private SyncStateDao syncStateDao;
+    @Autowired private InsightsDataMerger insightsDataMerger;
 
     // ==================== CORE FETCH METHODS ====================
 
@@ -145,14 +147,65 @@ public class MetaAdsConnector {
      * Fetch insights (batched breakdowns + auto-pagination)
      */
     public List<MetaInsightsDto> fetchInsights(String accountId, LocalDate startDate, LocalDate endDate) throws MetaApiException {
-        logger.info("🔄 Fetching BATCHED insights for account {} from {} to {}", accountId, startDate, endDate);
+        logger.info("🔄 Fetching SMART BATCHED insights for account {} from {} to {}", accountId, startDate, endDate);
+
+        long overallStartTime = System.currentTimeMillis();
+
+        try {
+            // Step 1: Fetch 3 breakdown batches concurrently
+            List<MetaInsightsDto> batch1Results = fetchInsightsBatch(accountId, startDate, endDate, 0); // demographic
+            List<MetaInsightsDto> batch2Results = fetchInsightsBatch(accountId, startDate, endDate, 1); // geographic
+            List<MetaInsightsDto> batch3Results = fetchInsightsBatch(accountId, startDate, endDate, 2); // placement
+
+            // Step 2: Validate batch consistency
+            if (!insightsDataMerger.validateBatchConsistency(batch1Results, batch2Results, batch3Results)) {
+                logger.warn("⚠️  Batch consistency issues detected - proceeding with available data");
+            }
+
+            // Step 3: Merge all batches into complete data
+            List<MetaInsightsDto> mergedResults = insightsDataMerger.mergeAllBatches(
+                    batch1Results, batch2Results, batch3Results);
+
+            long totalDuration = System.currentTimeMillis() - overallStartTime;
+
+            logger.info("✅ SMART BATCHED insights completed: {} final records in {}ms ({:.2f}s)",
+                    mergedResults.size(), totalDuration, totalDuration / 1000.0);
+
+            return mergedResults;
+
+        } catch (Exception e) {
+            logger.error("❌ Smart batch insights fetch failed: {}", e.getMessage());
+
+            // Fallback: Try with minimal breakdown to get some data
+            logger.warn("🔄 Attempting fallback with demographic data only...");
+            return fetchInsightsBatch(accountId, startDate, endDate, 0); // demographic only
+        }
+    }
+
+    /**
+     * NEW: Fetch insights for specific breakdown batch
+     *
+     * @param accountId Account ID
+     * @param startDate Start date
+     * @param endDate End date
+     * @param batchIndex Batch index (0=demographic, 1=geographic, 2=placement)
+     * @return List of insights with specific breakdown data
+     */
+    private List<MetaInsightsDto> fetchInsightsBatch(String accountId, LocalDate startDate, LocalDate endDate, int batchIndex) throws MetaApiException {
+        List<String> breakdowns = metaApiProperties.getBreakdownBatch(batchIndex);
+        String batchName = metaApiProperties.getBatchName(batchIndex);
+
+        logger.debug("📊 Fetching {} batch insights ({}): {}", batchName, batchIndex, breakdowns);
+
+        long batchStartTime = System.currentTimeMillis();
 
         return metaApiClient.executeWithRetry(context -> {
             AdAccount account = new AdAccount(accountId, context);
 
+            // Build insights request with specific breakdown batch
             AdAccount.APIRequestGetInsights insightsRequest = account.getInsights()
                     .requestFields(metaApiProperties.getFields().getInsights())
-                    .setBreakdowns(metaApiProperties.getDefaultBreakdownsString())
+                    .setBreakdowns(String.join(",", breakdowns)) // Use specific batch breakdowns
                     .setLevel("ad")
                     .setTimeRange("{\"since\":\"" + startDate.format(DateTimeFormatter.ISO_LOCAL_DATE) +
                             "\",\"until\":\"" + endDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "\"}")
@@ -169,14 +222,97 @@ public class MetaAdsConnector {
                 result.add(mapInsightsToDto(insight));
                 count++;
 
-                if (count % 500 == 0) {
-                    logger.debug("   📈 Processed {} insights...", count);
+                if (count % 250 == 0) { // More frequent logging for batch progress
+                    logger.debug("   📈 {} batch: {} insights processed...", batchName, count);
                 }
             }
 
-            logger.info("✅ BATCHED insights fetch: {} records for account {}", result.size(), accountId);
+            long batchDuration = System.currentTimeMillis() - batchStartTime;
+
+            logger.info("✅ {} batch completed: {} records in {}ms", batchName, result.size(), batchDuration);
             return result;
         });
+    }
+
+    // ==================== FALLBACK & ERROR HANDLING ====================
+
+    /**
+     * NEW: Fetch insights with fallback strategy if smart batching fails
+     */
+    public List<MetaInsightsDto> fetchInsightsWithFallback(String accountId, LocalDate startDate, LocalDate endDate) throws MetaApiException {
+        try {
+            // Primary: Smart 3-batch strategy
+            return fetchInsights(accountId, startDate, endDate);
+
+        } catch (MetaApiException e) {
+            logger.error("❌ Smart batch strategy failed: {}", e.getMessage());
+
+            // Fallback 1: Try demographic data only
+            try {
+                logger.warn("🔄 Fallback 1: Demographic data only...");
+                return fetchInsightsBatch(accountId, startDate, endDate, 0);
+
+            } catch (Exception e2) {
+                logger.error("❌ Demographic fallback failed: {}", e2.getMessage());
+
+                // Fallback 2: No breakdowns at all
+                logger.warn("🔄 Fallback 2: No breakdowns...");
+                return fetchInsightsNoBreakdowns(accountId, startDate, endDate);
+            }
+        }
+    }
+
+    /**
+     * NEW: Emergency fallback - fetch insights without any breakdowns
+     */
+    private List<MetaInsightsDto> fetchInsightsNoBreakdowns(String accountId, LocalDate startDate, LocalDate endDate) throws MetaApiException {
+        logger.warn("⚠️  Emergency fallback: Fetching insights without breakdowns");
+
+        return metaApiClient.executeWithRetry(context -> {
+            AdAccount account = new AdAccount(accountId, context);
+
+            AdAccount.APIRequestGetInsights insightsRequest = account.getInsights()
+                    .requestFields(metaApiProperties.getFields().getInsights())
+                    // NO BREAKDOWNS - just core metrics
+                    .setLevel("ad")
+                    .setTimeRange("{\"since\":\"" + startDate.format(DateTimeFormatter.ISO_LOCAL_DATE) +
+                            "\",\"until\":\"" + endDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "\"}")
+                    .setLimit(metaApiProperties.getPagination().getMaxLimit());
+
+            APINodeList<AdsInsights> insights = insightsRequest
+                    .execute()
+                    .withAutoPaginationIterator(true);
+
+            List<MetaInsightsDto> result = new ArrayList<>();
+            for (AdsInsights insight : insights) {
+                MetaInsightsDto dto = mapInsightsToDto(insight);
+
+                // Set default values for missing breakdown data
+                if (dto.getAge() == null) dto.setAge("unknown");
+                if (dto.getGender() == null) dto.setGender("unknown");
+                if (dto.getCountry() == null) dto.setCountry("unknown");
+                if (dto.getRegion() == null) dto.setRegion("unknown");
+
+                result.add(dto);
+            }
+
+            logger.warn("⚠️  Emergency fallback completed: {} records (no breakdown data)", result.size());
+            return result;
+        });
+    }
+
+    // ==================== BACKWARD COMPATIBILITY ====================
+
+    /**
+     * @deprecated Use fetchInsights() which now uses smart batching
+     * Kept for backward compatibility
+     */
+    @Deprecated
+    public List<MetaInsightsDto> fetchInsightsOldMethod(String accountId, LocalDate startDate, LocalDate endDate) throws MetaApiException {
+        logger.warn("⚠️  Using deprecated fetchInsightsOldMethod - this may cause breakdown errors");
+
+        // Delegate to new smart method
+        return fetchInsights(accountId, startDate, endDate);
     }
 
     // ==================== INCREMENTAL FETCH METHODS ====================
