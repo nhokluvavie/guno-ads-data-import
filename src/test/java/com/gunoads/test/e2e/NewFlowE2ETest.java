@@ -35,6 +35,7 @@ class NewFlowE2ETest extends BaseE2ETest {
     @Autowired private AdvertisementDao advertisementDao;
     @Autowired private PlacementDao placementDao;
     @Autowired private AdsReportingDao adsReportingDao;
+    @Autowired private AdsProcessingDateDao adsProcessingDateDao;
 
     private static final LocalDate TEST_DATE = LocalDate.of(2025, 9, 17); // Customize any date you want
     private static String SINGLE_TEST_ACCOUNT_ID = "468073679646974";
@@ -325,64 +326,187 @@ class NewFlowE2ETest extends BaseE2ETest {
 
     @Test
     @Order(5)
-    @DisplayName("📊 E2E: Single Account Performance Data Test")
+    @DisplayName("📊 E2E: Single Account Performance Data Test - COMPLETE PIPELINE")
     @Transactional
     @Commit
     void testSingleAccountPerformanceData() {
-        System.out.println("📊 TEST 5: Single Account Performance Data Test");
+        System.out.println("📊 TEST 5: Single Account Performance Data Test - COMPLETE PIPELINE");
 
         try {
             assertThat(SINGLE_TEST_ACCOUNT_ID).isNotNull();
-            System.out.printf("🎯 Testing performance data for account: %s\n", SINGLE_TEST_ACCOUNT_ID);
+            System.out.printf("🎯 Testing complete pipeline for account: %s\n", SINGLE_TEST_ACCOUNT_ID);
 
-            // Record initial state
+            // === PHASE 1: RECORD INITIAL DATABASE STATE ===
             long initialReporting = adsReportingDao.count();
-            System.out.printf("📊 INITIAL REPORTING RECORDS: %d\n", initialReporting);
+            long initialAccounts = accountDao.count();
+            long initialCampaigns = campaignDao.count();
+            long initialAdSets = adSetDao.count();
+            long initialAds = advertisementDao.count();
+            long initialPlacements = placementDao.count();
 
-            // Test fetching insights for ONLY this specific account
-            System.out.println("📈 Testing single account insights fetching...");
+            System.out.printf("📊 INITIAL DB STATE:\n");
+            System.out.printf("   💼 Accounts: %d\n", initialAccounts);
+            System.out.printf("   📢 Campaigns: %d\n", initialCampaigns);
+            System.out.printf("   🎯 AdSets: %d\n", initialAdSets);
+            System.out.printf("   📱 Ads: %d\n", initialAds);
+            System.out.printf("   📍 Placements: %d\n", initialPlacements);
+            System.out.printf("   📊 Reporting: %d\n", initialReporting);
+
+            // === PHASE 2: FETCH INSIGHTS DATA ===
+            System.out.println("\n📈 PHASE 2: Fetching insights data...");
             long startTime = System.currentTimeMillis();
 
-            // Use connector to fetch insights directly for this account
             var insights = metaAdsConnector.fetchInsights(SINGLE_TEST_ACCOUNT_ID, TEST_DATE, TEST_DATE);
-
-            long duration = System.currentTimeMillis() - startTime;
+            long fetchDuration = System.currentTimeMillis() - startTime;
 
             System.out.printf("✅ Fetched %d insights for account %s on %s in %d ms (%.2f seconds)\n",
-                    insights.size(), SINGLE_TEST_ACCOUNT_ID, TEST_DATE, duration, duration / 1000.0);
+                    insights.size(), SINGLE_TEST_ACCOUNT_ID, TEST_DATE, fetchDuration, fetchDuration / 1000.0);
 
             // Verify insights belong to this specific account
-            System.out.println("🔍 Verifying insights belong to specific account...");
+            System.out.println("🔍 Verifying insights data integrity...");
             for (var insight : insights) {
                 assertThat(insight.getAccountId()).isEqualTo(SINGLE_TEST_ACCOUNT_ID);
             }
 
-            // Summary
-            System.out.printf("\n📊 SINGLE ACCOUNT INSIGHTS SUMMARY:\n");
-            System.out.printf("   🎯 Account ID: %s\n", SINGLE_TEST_ACCOUNT_ID);
-            System.out.printf("   📅 Date: %s\n", TEST_DATE);
-            System.out.printf("   📈 Insights Records: %d\n", insights.size());
-            System.out.printf("   ⏱️  Fetch Duration: %d ms (%.2f seconds)\n", duration, duration / 1000.0);
-
-            // Verify we got some data (or explain why we didn't)
             if (insights.isEmpty()) {
                 System.out.println("ℹ️  No insights found - this could be normal if:");
                 System.out.println("   - No ads were active on the test date");
                 System.out.println("   - Account had no spend on the test date");
                 System.out.println("   - Test date is too far in the past/future");
-            } else {
-                System.out.printf("✅ Successfully retrieved insights data\n");
-
-                // Show sample insight data
-                var firstInsight = insights.get(0);
-                System.out.printf("📋 Sample insight: AdID=%s, Impressions=%s, Spend=%s\n",
-                        firstInsight.getAdId(), firstInsight.getImpressions(), firstInsight.getSpend());
+                System.out.println("✅ Test completed (no data to process)\n");
+                return; // Exit gracefully if no data
             }
 
-            // Performance check
-            assertThat(duration).isLessThan(TimeUnit.MINUTES.toMillis(10)); // 10 minutes max
+            // === PHASE 3: TRANSFORM DATA ===
+            System.out.println("\n🔄 PHASE 3: Transforming insights to reporting entities...");
+            long transformStart = System.currentTimeMillis();
 
-            System.out.println("✅ Single Account Performance Data Test: PASSED\n");
+            List<AdsReporting> reportingList = dataTransformer.transformInsightsList(insights);
+            long transformDuration = System.currentTimeMillis() - transformStart;
+
+            assertThat(reportingList.size()).isEqualTo(insights.size());
+            System.out.printf("✅ Transformed %d insights to reporting entities in %d ms\n",
+                    reportingList.size(), transformDuration);
+
+            // Verify transformation quality
+            System.out.println("🔍 Verifying transformation quality...");
+            int validRecords = 0;
+            for (AdsReporting reporting : reportingList) {
+                assertThat(reporting.getAccountId()).isNotNull();
+                assertThat(reporting.getAdvertisementId()).isNotNull();
+                assertThat(reporting.getAdsProcessingDt()).isNotNull();
+
+                if (reporting.getImpressions() != null && reporting.getImpressions() > 0) {
+                    validRecords++;
+                }
+            }
+            System.out.printf("✅ Transformation quality: %d/%d records have valid impressions data\n",
+                    validRecords, reportingList.size());
+
+            // === PHASE 4: ENSURE DATE DIMENSION EXISTS ===
+            System.out.println("\n📅 PHASE 4: Ensuring date dimension exists...");
+            try {
+                // Create AdsProcessingDate for TEST_DATE if not exists
+                if (!adsProcessingDateDao.existsById(TEST_DATE.toString())) {
+                    AdsProcessingDate dateRecord = createDateDimension(TEST_DATE);
+                    adsProcessingDateDao.insert(dateRecord);
+                    System.out.printf("✅ Created date dimension for: %s\n", TEST_DATE);
+                } else {
+                    System.out.printf("ℹ️  Date dimension already exists for: %s\n", TEST_DATE);
+                }
+            } catch (Exception e) {
+                System.out.printf("⚠️  Date dimension creation failed: %s (continuing...)\n", e.getMessage());
+            }
+
+            // === PHASE 5: INSERT REPORTING DATA INTO DATABASE ===
+            System.out.println("\n💾 PHASE 5: Inserting reporting data into database...");
+            long insertStart = System.currentTimeMillis();
+
+            int successfulInserts = 0;
+            int failedInserts = 0;
+
+            try {
+                // Try batch insert first (more efficient)
+                System.out.println("🚀 Attempting batch insert...");
+                adsReportingDao.batchInsert(reportingList);
+                successfulInserts = reportingList.size();
+                System.out.printf("✅ Batch insert successful: %d records\n", successfulInserts);
+
+            } catch (Exception e) {
+                System.out.printf("⚠️  Batch insert failed: %s\n", e.getMessage());
+                System.out.println("🔄 Falling back to individual inserts...");
+
+                // Fallback to individual inserts
+                for (AdsReporting reporting : reportingList) {
+                    try {
+                        adsReportingDao.insert(reporting);
+                        successfulInserts++;
+
+                        if (successfulInserts % 10 == 0) {
+                            System.out.printf("   📊 Progress: %d/%d records inserted\n",
+                                    successfulInserts, reportingList.size());
+                        }
+                    } catch (Exception ex) {
+                        failedInserts++;
+                        System.out.printf("   ❌ Failed to insert record %d: %s\n",
+                                successfulInserts + failedInserts, ex.getMessage());
+                    }
+                }
+            }
+
+            long insertDuration = System.currentTimeMillis() - insertStart;
+            System.out.printf("✅ Database insertion completed in %d ms:\n", insertDuration);
+            System.out.printf("   ✅ Successful: %d records\n", successfulInserts);
+            System.out.printf("   ❌ Failed: %d records\n", failedInserts);
+            System.out.printf("   📊 Success rate: %.1f%%\n",
+                    (successfulInserts * 100.0 / reportingList.size()));
+
+            // === PHASE 6: VERIFY DATABASE STATE ===
+            System.out.println("\n🔍 PHASE 6: Verifying final database state...");
+
+            long finalReporting = adsReportingDao.count();
+            long finalAccounts = accountDao.count();
+            long finalCampaigns = campaignDao.count();
+            long finalAdSets = adSetDao.count();
+            long finalAds = advertisementDao.count();
+            long finalPlacements = placementDao.count();
+
+            System.out.printf("📊 FINAL DB STATE:\n");
+            System.out.printf("   💼 Accounts: %d (+%d)\n", finalAccounts, finalAccounts - initialAccounts);
+            System.out.printf("   📢 Campaigns: %d (+%d)\n", finalCampaigns, finalCampaigns - initialCampaigns);
+            System.out.printf("   🎯 AdSets: %d (+%d)\n", finalAdSets, finalAdSets - initialAdSets);
+            System.out.printf("   📱 Ads: %d (+%d)\n", finalAds, finalAds - initialAds);
+            System.out.printf("   📍 Placements: %d (+%d)\n", finalPlacements, finalPlacements - initialPlacements);
+            System.out.printf("   📊 Reporting: %d (+%d)\n", finalReporting, finalReporting - initialReporting);
+
+            // Database assertions
+            assertThat(finalReporting).isGreaterThanOrEqualTo(initialReporting);
+            assertThat(successfulInserts).isGreaterThan(0);
+
+            if (successfulInserts > 0) {
+                assertThat(finalReporting).isGreaterThan(initialReporting);
+            }
+
+            // === PHASE 7: PERFORMANCE SUMMARY ===
+            long totalDuration = fetchDuration + transformDuration + insertDuration;
+            System.out.printf("\n⚡ PERFORMANCE SUMMARY:\n");
+            System.out.printf("   📡 API Fetch: %d ms (%.2f seconds)\n", fetchDuration, fetchDuration / 1000.0);
+            System.out.printf("   🔄 Transform: %d ms (%.2f seconds)\n", transformDuration, transformDuration / 1000.0);
+            System.out.printf("   💾 Database Insert: %d ms (%.2f seconds)\n", insertDuration, insertDuration / 1000.0);
+            System.out.printf("   ⏱️  Total Duration: %d ms (%.2f seconds)\n", totalDuration, totalDuration / 1000.0);
+            System.out.printf("   📊 Records per second: %.1f\n", (successfulInserts * 1000.0 / totalDuration));
+
+            // Performance assertions
+            assertThat(totalDuration).isLessThan(TimeUnit.MINUTES.toMillis(10)); // 10 minutes max
+
+            // === TEST COMPLETION ===
+            System.out.printf("\n🎉 COMPLETE PIPELINE SUCCESS:\n");
+            System.out.printf("   📈 %d insights fetched with smart batching\n", insights.size());
+            System.out.printf("   🔄 %d entities transformed successfully\n", reportingList.size());
+            System.out.printf("   💾 %d records inserted into database\n", successfulInserts);
+            System.out.printf("   🚀 End-to-end performance: %.2f seconds\n", totalDuration / 1000.0);
+
+            System.out.println("✅ Single Account Performance Data Test - COMPLETE PIPELINE: PASSED\n");
 
         } catch (Exception e) {
             System.err.println("❌ Single Account Performance Data Test: FAILED");
@@ -390,6 +514,31 @@ class NewFlowE2ETest extends BaseE2ETest {
             e.printStackTrace();
             fail("Single Account Performance Data Test failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Helper method to create date dimension record
+     */
+    private AdsProcessingDate createDateDimension(LocalDate date) {
+        AdsProcessingDate dateRecord = new AdsProcessingDate();
+
+        dateRecord.setFullDate(date.toString());
+        dateRecord.setDayOfWeek(date.getDayOfWeek().getValue());
+        dateRecord.setDayOfWeekName(date.getDayOfWeek().toString());
+        dateRecord.setDayOfMonth(date.getDayOfMonth());
+        dateRecord.setDayOfYear(date.getDayOfYear());
+        dateRecord.setWeekOfYear(date.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear()));
+        dateRecord.setMonthOfYear(date.getMonthValue());
+        dateRecord.setMonthName(date.getMonth().toString());
+        dateRecord.setQuarter((date.getMonthValue() - 1) / 3 + 1);
+        dateRecord.setYear(date.getYear());
+        dateRecord.setIsWeekend(date.getDayOfWeek().getValue() >= 6);
+        dateRecord.setIsHoliday(false); // Default to false
+        dateRecord.setHolidayName(null);
+        dateRecord.setFiscalYear(date.getYear()); // Assume calendar year = fiscal year
+        dateRecord.setFiscalQuarter((date.getMonthValue() - 1) / 3 + 1);
+
+        return dateRecord;
     }
 
     @AfterEach
