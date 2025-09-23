@@ -1,7 +1,3 @@
-/**
- * PHASE 2C: SyncStateDao - Track incremental sync timestamps
- * NEW CLASS để quản lý sync state cho business objects
- */
 package com.gunoads.dao;
 
 import org.slf4j.Logger;
@@ -20,17 +16,26 @@ public class SyncStateDao {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // Table để track sync state (tạo tự động nếu chưa có)
-    private static final String SYNC_STATE_TABLE = "tbl_sync_state";
+    private static final String SYNC_STATE_TABLE = "ads_analytics.tbl_sync_state";
 
     /**
-     * Initialize sync state table nếu chưa tồn tại
+     * Initialize sync state table if not exists
      */
     public void initializeSyncStateTable() {
         try {
-            String createTableSql = "CREATE TABLE IF NOT EXISTS tbl_sync_state (" +
+            // First check if table exists
+            String checkTableSql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'tbl_sync_state'";
+            Integer tableCount = jdbcTemplate.queryForObject(checkTableSql, Integer.class);
+
+            if (tableCount != null && tableCount > 0) {
+                logger.info("✅ Sync state table already exists");
+                return;
+            }
+
+            // Create table in current schema
+            String createTableSql = "CREATE TABLE IF NOT EXISTS ads_analytics.tbl_sync_state (" +
                     "object_type VARCHAR(50) NOT NULL," +
-                    "account_id VARCHAR(255)," +
+                    "account_id VARCHAR(255) NOT NULL," +
                     "last_sync_time TIMESTAMP NOT NULL," +
                     "sync_status VARCHAR(20) DEFAULT 'SUCCESS'," +
                     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
@@ -39,25 +44,33 @@ public class SyncStateDao {
                     ")";
 
             jdbcTemplate.execute(createTableSql);
-            logger.info("✅ Sync state table initialized");
+            logger.info("✅ Sync state table created successfully");
+
+            // Verify table was created
+            Integer verifyCount = jdbcTemplate.queryForObject(checkTableSql, Integer.class);
+            if (verifyCount == null || verifyCount == 0) {
+                throw new RuntimeException("Table creation verification failed");
+            }
 
         } catch (Exception e) {
             logger.error("❌ Failed to initialize sync state table: {}", e.getMessage());
+            // Don't throw exception - let the test continue and fail gracefully if needed
+            logger.warn("⚠️ Continuing without sync state table - some features may not work");
         }
     }
 
     /**
-     * GET last sync time cho object type + account
+     * Get last sync time for object type + account
      */
     public LocalDateTime getLastSyncTime(String objectType, String accountId) {
         try {
             String sql = "SELECT last_sync_time FROM " + SYNC_STATE_TABLE +
                     " WHERE object_type = ? AND account_id = ?";
 
-            String timestampStr = jdbcTemplate.queryForObject(sql, String.class, objectType, accountId);
+            java.sql.Timestamp timestamp = jdbcTemplate.queryForObject(sql, java.sql.Timestamp.class, objectType, accountId);
 
-            if (timestampStr != null) {
-                LocalDateTime lastSync = LocalDateTime.parse(timestampStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            if (timestamp != null) {
+                LocalDateTime lastSync = timestamp.toLocalDateTime();
                 logger.debug("📅 Last sync for {}:{} was {}", objectType, accountId, lastSync);
                 return lastSync;
             }
@@ -70,23 +83,23 @@ public class SyncStateDao {
     }
 
     /**
-     * UPDATE sync time sau khi sync thành công
+     * Update sync time after successful sync
      */
     public void updateSyncTime(String objectType, String accountId, LocalDateTime syncTime) {
         try {
             String upsertSql = "INSERT INTO " + SYNC_STATE_TABLE +
-                    " (object_type, account_id, last_sync_time, updated_at)" +
-                    " VALUES (?, ?, ?, CURRENT_TIMESTAMP)" +
+                    " (object_type, account_id, last_sync_time, sync_status, updated_at)" +
+                    " VALUES (?, ?, ?, 'SUCCESS', CURRENT_TIMESTAMP)" +
                     " ON CONFLICT (object_type, account_id)" +
                     " DO UPDATE SET" +
                     " last_sync_time = EXCLUDED.last_sync_time," +
                     " sync_status = 'SUCCESS'," +
                     " updated_at = CURRENT_TIMESTAMP";
 
-            int rows = jdbcTemplate.update(upsertSql,
+            jdbcTemplate.update(upsertSql,
                     objectType,
                     accountId,
-                    syncTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                    java.sql.Timestamp.valueOf(syncTime)  // Convert to Timestamp
             );
 
             logger.debug("✅ Updated sync time for {}:{} to {}", objectType, accountId, syncTime);
@@ -97,7 +110,7 @@ public class SyncStateDao {
     }
 
     /**
-     * CHECK if incremental sync is possible
+     * Check if incremental sync is possible
      */
     public boolean canUseIncremental(String objectType, String accountId) {
         LocalDateTime lastSync = getLastSyncTime(objectType, accountId);
@@ -123,11 +136,11 @@ public class SyncStateDao {
     }
 
     /**
-     * MARK sync as failed
+     * Mark sync as failed
      */
     public void markSyncFailed(String objectType, String accountId, String errorMessage) {
         try {
-            String updateSql = "INSERT INTO " + SYNC_STATE_TABLE +
+            String upsertSql = "INSERT INTO " + SYNC_STATE_TABLE +
                     " (object_type, account_id, last_sync_time, sync_status, updated_at)" +
                     " VALUES (?, ?, CURRENT_TIMESTAMP, 'FAILED', CURRENT_TIMESTAMP)" +
                     " ON CONFLICT (object_type, account_id)" +
@@ -135,7 +148,7 @@ public class SyncStateDao {
                     " sync_status = 'FAILED'," +
                     " updated_at = CURRENT_TIMESTAMP";
 
-            jdbcTemplate.update(updateSql, objectType, accountId);
+            jdbcTemplate.update(upsertSql, objectType, accountId);
             logger.error("❌ Marked sync failed for {}:{} - {}", objectType, accountId, errorMessage);
 
         } catch (Exception e) {
@@ -144,32 +157,39 @@ public class SyncStateDao {
     }
 
     /**
-     * GET sync statistics for monitoring
+     * Get sync statistics for monitoring
      */
     public SyncStats getSyncStats() {
         try {
+            // First ensure table exists
+            initializeSyncStateTable();
+
             String sql = "SELECT " +
-                    "COUNT(*) as total_syncs," +
+                    "COUNT(*) as total_accounts," +
                     "COUNT(CASE WHEN sync_status = 'SUCCESS' THEN 1 END) as successful_syncs," +
                     "COUNT(CASE WHEN sync_status = 'FAILED' THEN 1 END) as failed_syncs," +
-                    "MAX(updated_at) as last_activity " +
+                    "MAX(updated_at) as last_sync_time," +
+                    "MAX(updated_at) as last_update_time " +
                     "FROM " + SYNC_STATE_TABLE;
 
             return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new SyncStats(
-                    rs.getInt("total_syncs"),
+                    rs.getInt("total_accounts"),
                     rs.getInt("successful_syncs"),
                     rs.getInt("failed_syncs"),
-                    rs.getString("last_activity")
+                    rs.getTimestamp("last_sync_time") != null ?
+                            rs.getTimestamp("last_sync_time").toLocalDateTime() : null,
+                    rs.getTimestamp("last_update_time") != null ?
+                            rs.getTimestamp("last_update_time").toLocalDateTime() : null
             ));
 
         } catch (Exception e) {
             logger.error("❌ Failed to get sync stats: {}", e.getMessage());
-            return new SyncStats(0, 0, 0, "unknown");
+            return new SyncStats(0, 0, 0, null, null);
         }
     }
 
     /**
-     * CLEAR old sync states (cleanup)
+     * Clean up old sync states
      */
     public void cleanupOldSyncStates(int daysToKeep) {
         try {
@@ -187,35 +207,49 @@ public class SyncStateDao {
     }
 
     /**
-     * Sync statistics model
+     * Sync statistics model with proper getters
      */
     public static class SyncStats {
-        public final int totalSyncs;
-        public final int successfulSyncs;
-        public final int failedSyncs;
-        public final String lastActivity;
+        private final int totalAccounts;
+        private final int successfulSyncs;
+        private final int failedSyncs;
+        private final LocalDateTime lastSyncTime;
+        private final LocalDateTime lastUpdateTime;
 
-        public SyncStats(int totalSyncs, int successfulSyncs, int failedSyncs, String lastActivity) {
-            this.totalSyncs = totalSyncs;
+        public SyncStats(int totalAccounts, int successfulSyncs, int failedSyncs,
+                         LocalDateTime lastSyncTime, LocalDateTime lastUpdateTime) {
+            this.totalAccounts = totalAccounts;
             this.successfulSyncs = successfulSyncs;
             this.failedSyncs = failedSyncs;
-            this.lastActivity = lastActivity;
+            this.lastSyncTime = lastSyncTime;
+            this.lastUpdateTime = lastUpdateTime;
+        }
+
+        public int getTotalAccounts() { return totalAccounts; }
+        public int getSuccessfulSyncs() { return successfulSyncs; }
+        public int getFailedSyncs() { return failedSyncs; }
+        public LocalDateTime getLastSyncTime() { return lastSyncTime; }
+        public LocalDateTime getLastUpdateTime() { return lastUpdateTime; }
+
+        public double getSuccessRate() {
+            return totalAccounts > 0 ? (double) successfulSyncs / totalAccounts * 100 : 0;
         }
 
         @Override
         public String toString() {
-            return String.format("SyncStats{total=%d, success=%d, failed=%d, lastActivity=%s}",
-                    totalSyncs, successfulSyncs, failedSyncs, lastActivity);
+            return String.format("SyncStats{totalAccounts=%d, successful=%d, failed=%d, successRate=%.1f%%, lastSync=%s}",
+                    totalAccounts, successfulSyncs, failedSyncs, getSuccessRate(),
+                    lastSyncTime != null ? lastSyncTime.toString() : "Never");
         }
     }
 
     /**
-     * Constants cho object types
+     * Constants for object types
      */
     public static class ObjectType {
         public static final String CAMPAIGNS = "campaigns";
         public static final String ADSETS = "adsets";
         public static final String ADS = "ads";
-        public static final String ACCOUNTS = "accounts"; // Ít khi dùng incremental
+        public static final String ACCOUNTS = "accounts";
     }
 }

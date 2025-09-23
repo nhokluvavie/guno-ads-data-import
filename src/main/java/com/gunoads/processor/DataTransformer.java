@@ -172,7 +172,7 @@ public class DataTransformer {
             adSet.setDailyBudget(parseBigDecimal(dto.getDailyBudget()));
             adSet.setLifetimeBudget(parseBigDecimal(dto.getLifetimeBudget()));
             adSet.setBudgetRemaining(parseBigDecimal(dto.getBudgetRemaining()));
-            adSet.setBidAmount(parseBigDecimal(dto.getBidAmount().toString()));
+            adSet.setBidAmount(parseBigDecimal(safeGetLong(dto.getBidAmount(), 0L).toString()));
             adSet.setBidStrategy(safeGetString(dto.getBidStrategy()));
 
             // Optimization
@@ -474,12 +474,12 @@ public class DataTransformer {
     }
 
     private BigDecimal parseBigDecimal(String value) {
-        if (value == null || value.trim().isEmpty()) return null;
+        if (value == null || value.trim().isEmpty()) return new BigDecimal("0");
         try {
             return new BigDecimal(value.trim());
         } catch (Exception e) {
             logger.warn("Failed to parse BigDecimal: {}", value);
-            return null;
+            return new BigDecimal("0");
         }
     }
 

@@ -79,6 +79,7 @@ public class MetaAdsConnector {
             APINodeList<Campaign> campaigns = account.getCampaigns()
                     .requestFields(metaApiProperties.getFields().getCampaign())
                     .setParam("limit", metaApiProperties.getPagination().getMaxLimit())
+                    .setParam("filtering", "[{\"field\":\"effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]")
                     .execute()
                     .withAutoPaginationIterator(true);
 
@@ -102,6 +103,7 @@ public class MetaAdsConnector {
             APINodeList<AdSet> adSets = account.getAdSets()
                     .requestFields(metaApiProperties.getFields().getAdset())
                     .setParam("limit", metaApiProperties.getPagination().getMaxLimit())
+                    .setParam("filtering", "[{\"field\":\"effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]")
                     .execute()
                     .withAutoPaginationIterator(true);
 
@@ -125,6 +127,7 @@ public class MetaAdsConnector {
             APINodeList<Ad> ads = account.getAds()
                     .requestFields(metaApiProperties.getFields().getAd())
                     .setParam("limit", metaApiProperties.getPagination().getMaxLimit())
+                    .setParam("filtering", "[{\"field\":\"effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]")
                     .execute()
                     .withAutoPaginationIterator(true);
 
@@ -197,9 +200,16 @@ public class MetaAdsConnector {
         return metaApiClient.executeWithRetry(context -> {
             AdAccount account = new AdAccount(accountId, context);
 
+            // Combined filter: ACTIVE status AND updated_time
+            String combinedFilter = String.format(
+                    "[{\"field\":\"effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}," +
+                            "{\"field\":\"updated_time\",\"operator\":\"GREATER_THAN\",\"value\":\"%s\"}]",
+                    sinceStr
+            );
+
             APINodeList<Campaign> campaigns = account.getCampaigns()
                     .requestFields(metaApiProperties.getFields().getCampaign())
-                    .setParam("filtering", "[{\"field\":\"updated_time\",\"operator\":\"GREATER_THAN\",\"value\":\"" + sinceStr + "\"}]")
+                    .setParam("filtering", combinedFilter)
                     .setParam("limit", metaApiProperties.getPagination().getMaxLimit())
                     .execute()
                     .withAutoPaginationIterator(true);
@@ -233,9 +243,16 @@ public class MetaAdsConnector {
         return metaApiClient.executeWithRetry(context -> {
             AdAccount account = new AdAccount(accountId, context);
 
+            // Combined filter: ACTIVE status AND updated_time
+            String combinedFilter = String.format(
+                    "[{\"field\":\"effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}," +
+                            "{\"field\":\"updated_time\",\"operator\":\"GREATER_THAN\",\"value\":\"%s\"}]",
+                    sinceStr
+            );
+
             APINodeList<AdSet> adSets = account.getAdSets()
                     .requestFields(metaApiProperties.getFields().getAdset())
-                    .setParam("filtering", "[{\"field\":\"updated_time\",\"operator\":\"GREATER_THAN\",\"value\":\"" + sinceStr + "\"}]")
+                    .setParam("filtering", combinedFilter)
                     .setParam("limit", metaApiProperties.getPagination().getMaxLimit())
                     .execute()
                     .withAutoPaginationIterator(true);
@@ -269,9 +286,16 @@ public class MetaAdsConnector {
         return metaApiClient.executeWithRetry(context -> {
             AdAccount account = new AdAccount(accountId, context);
 
+            // Combined filter: ACTIVE status AND updated_time
+            String combinedFilter = String.format(
+                    "[{\"field\":\"effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}," +
+                            "{\"field\":\"updated_time\",\"operator\":\"GREATER_THAN\",\"value\":\"%s\"}]",
+                    sinceStr
+            );
+
             APINodeList<Ad> ads = account.getAds()
                     .requestFields(metaApiProperties.getFields().getAd())
-                    .setParam("filtering", "[{\"field\":\"updated_time\",\"operator\":\"GREATER_THAN\",\"value\":\"" + sinceStr + "\"}]")
+                    .setParam("filtering", combinedFilter)
                     .setParam("limit", metaApiProperties.getPagination().getMaxLimit())
                     .execute()
                     .withAutoPaginationIterator(true);

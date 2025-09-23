@@ -67,8 +67,7 @@ public class MetaApiProperties {
                 "campaign_id", "adset_id", "ad_id", "account_id",
 
                 // Core performance metrics
-                "spend", "impressions", "clicks", "unique_clicks", "link_clicks",
-                "unique_link_clicks", "reach", "frequency",
+                "spend", "impressions", "clicks", "unique_clicks", "reach", "frequency",
 
                 // Cost metrics
                 "cpc", "cpm", "cpp", "ctr", "unique_ctr",

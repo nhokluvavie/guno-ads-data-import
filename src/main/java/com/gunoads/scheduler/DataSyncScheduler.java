@@ -84,28 +84,28 @@ public class DataSyncScheduler {
     /**
      * NEW: Manual sync for specific date
      */
-    public void triggerManualSyncForDate(LocalDate date) {
-        logger.info("Manual sync triggered for date {} at {}", date, LocalDateTime.now());
-
-        try {
-            metaAdsService.performFullSyncForDate(date);
-            logger.info("Manual sync completed successfully for date: {}", date);
-        } catch (Exception e) {
-            logger.error("Manual sync failed for date {}: {}", date, e.getMessage(), e);
-        }
-    }
+//    public void triggerManualSyncForDate(LocalDate date) {
+//        logger.info("Manual sync triggered for date {} at {}", date, LocalDateTime.now());
+//
+//        try {
+//            metaAdsService.performFullSyncForDate(date);
+//            logger.info("Manual sync completed successfully for date: {}", date);
+//        } catch (Exception e) {
+//            logger.error("Manual sync failed for date {}: {}", date, e.getMessage(), e);
+//        }
+//    }
 
     /**
      * NEW: Manual sync for date range
      */
-    public void triggerManualSyncForDateRange(LocalDate startDate, LocalDate endDate) {
-        logger.info("Manual sync triggered for range {} to {} at {}", startDate, endDate, LocalDateTime.now());
-
-        try {
-            metaAdsService.performFullSyncForDateRange(startDate, endDate);
-            logger.info("Manual sync completed successfully for range: {} to {}", startDate, endDate);
-        } catch (Exception e) {
-            logger.error("Manual sync failed for range {} to {}: {}", startDate, endDate, e.getMessage(), e);
-        }
-    }
+//    public void triggerManualSyncForDateRange(LocalDate startDate, LocalDate endDate) {
+//        logger.info("Manual sync triggered for range {} to {} at {}", startDate, endDate, LocalDateTime.now());
+//
+//        try {
+//            metaAdsService.performFullSyncForDateRange(startDate, endDate);
+//            logger.info("Manual sync completed successfully for range: {} to {}", startDate, endDate);
+//        } catch (Exception e) {
+//            logger.error("Manual sync failed for range {} to {}: {}", startDate, endDate, e.getMessage(), e);
+//        }
+//    }
 }

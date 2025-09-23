@@ -3,6 +3,7 @@ package com.gunoads.controller;
 import com.gunoads.connector.MetaAdsConnector;
 import com.gunoads.scheduler.DataSyncScheduler;
 import com.gunoads.service.MetaAdsService;
+import com.gunoads.dao.SyncStateDao;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,33 +22,70 @@ public class SchedulerController {
 
     private static final Logger logger = LoggerFactory.getLogger(SchedulerController.class);
 
-    @Autowired
-    private DataSyncScheduler dataSyncScheduler;
+    @Autowired private DataSyncScheduler dataSyncScheduler;
+    @Autowired private MetaAdsService metaAdsService;
+    @Autowired private MetaAdsConnector metaAdsConnector;
+    @Autowired private SyncStateDao syncStateDao;
 
-    @Autowired
-    private MetaAdsService metaAdsService;
+    // ==================== MANUAL SYNC TRIGGERS ====================
 
     /**
-     * Trigger manual sync
+     * Trigger manual full sync (hierarchy + today's performance)
      */
     @PostMapping("/sync/manual")
-    public ResponseEntity<Map<String, String>> triggerManualSync() {
+    public ResponseEntity<Map<String, Object>> triggerManualSync() {
         try {
+            logger.info("Manual trigger: Full sync");
             dataSyncScheduler.triggerManualSync();
-            return ResponseEntity.ok(Map.of("status", "success", "message", "Manual sync triggered"));
+
+            return ResponseEntity.ok(Map.of(
+                    "status", "success",
+                    "message", "Manual full sync completed",
+                    "timestamp", LocalDateTime.now().toString()
+            ));
         } catch (Exception e) {
-            return ResponseEntity.status(500)
-                    .body(Map.of("status", "error", "message", e.getMessage()));
+            logger.error("Manual sync failed: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "status", "error",
+                            "message", e.getMessage(),
+                            "timestamp", LocalDateTime.now().toString()
+                    ));
         }
     }
 
     /**
-     * NEW DEFAULT: Sync today's performance data (replaces yesterday as default)
+     * Trigger hierarchy sync only
      */
-    @PostMapping("/sync/performance/today")
-    public ResponseEntity<Map<String, Object>> syncTodayPerformance() {
+    @PostMapping("/sync/hierarchy")
+    public ResponseEntity<Map<String, Object>> triggerHierarchySync() {
         try {
-            logger.info("Manual trigger: Today performance sync");
+            logger.info("Manual trigger: Hierarchy sync");
+            metaAdsService.syncAccountHierarchy();
+
+            return ResponseEntity.ok(Map.of(
+                    "status", "success",
+                    "message", "Hierarchy sync completed",
+                    "timestamp", LocalDateTime.now().toString()
+            ));
+        } catch (Exception e) {
+            logger.error("Hierarchy sync failed: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "status", "error",
+                            "message", e.getMessage(),
+                            "timestamp", LocalDateTime.now().toString()
+                    ));
+        }
+    }
+
+    /**
+     * Trigger performance data sync for today
+     */
+    @PostMapping("/sync/performance")
+    public ResponseEntity<Map<String, Object>> triggerPerformanceSync() {
+        try {
+            logger.info("Manual trigger: Today's performance sync");
             metaAdsService.syncTodayPerformanceData();
 
             return ResponseEntity.ok(Map.of(
@@ -57,23 +95,24 @@ public class SchedulerController {
                     "timestamp", LocalDateTime.now().toString()
             ));
         } catch (Exception e) {
-            logger.error("Today performance sync failed: {}", e.getMessage());
+            logger.error("Performance sync failed: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "status", "error",
                             "message", e.getMessage(),
-                            "date", LocalDate.now().toString()
+                            "date", LocalDate.now().toString(),
+                            "timestamp", LocalDateTime.now().toString()
                     ));
         }
     }
 
     /**
-     * KEEP EXISTING: Sync yesterday's performance data (legacy support)
+     * Trigger performance data sync for yesterday
      */
     @PostMapping("/sync/performance/yesterday")
-    public ResponseEntity<Map<String, Object>> syncYesterdayPerformance() {
+    public ResponseEntity<Map<String, Object>> triggerYesterdayPerformanceSync() {
         try {
-            logger.info("Manual trigger: Yesterday performance sync");
+            logger.info("Manual trigger: Yesterday's performance sync");
             metaAdsService.syncYesterdayPerformanceData();
 
             return ResponseEntity.ok(Map.of(
@@ -88,16 +127,17 @@ public class SchedulerController {
                     .body(Map.of(
                             "status", "error",
                             "message", e.getMessage(),
-                            "date", LocalDate.now().minusDays(1).toString()
+                            "date", LocalDate.now().minusDays(1).toString(),
+                            "timestamp", LocalDateTime.now().toString()
                     ));
         }
     }
 
     /**
-     * NEW: Sync performance data for specific date
+     * Trigger performance data sync for specific date
      */
     @PostMapping("/sync/performance/date/{date}")
-    public ResponseEntity<Map<String, Object>> syncPerformanceForDate(@PathVariable String date) {
+    public ResponseEntity<Map<String, Object>> triggerPerformanceSyncForDate(@PathVariable String date) {
         try {
             LocalDate targetDate = LocalDate.parse(date);
             logger.info("Manual trigger: Performance sync for date {}", targetDate);
@@ -115,7 +155,8 @@ public class SchedulerController {
                     .body(Map.of(
                             "status", "error",
                             "message", "Invalid date format. Use YYYY-MM-DD format",
-                            "example", "2025-01-15"
+                            "example", "2025-01-15",
+                            "timestamp", LocalDateTime.now().toString()
                     ));
         } catch (Exception e) {
             logger.error("Performance sync failed for date {}: {}", date, e.getMessage());
@@ -123,159 +164,157 @@ public class SchedulerController {
                     .body(Map.of(
                             "status", "error",
                             "message", e.getMessage(),
-                            "date", date
+                            "date", date,
+                            "timestamp", LocalDateTime.now().toString()
                     ));
         }
     }
 
     /**
-     * NEW: Sync performance data for date range
+     * Force full sync for specific account
      */
-    @PostMapping("/sync/performance/range")
-    public ResponseEntity<Map<String, Object>> syncPerformanceForRange(
-            @RequestParam String startDate,
-            @RequestParam String endDate) {
+    @PostMapping("/sync/force/{accountId}")
+    public ResponseEntity<Map<String, Object>> forceFullSyncForAccount(@PathVariable String accountId) {
         try {
-            LocalDate start = LocalDate.parse(startDate);
-            LocalDate end = LocalDate.parse(endDate);
-
-            // Validate date range
-            if (start.isAfter(end)) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of(
-                                "status", "error",
-                                "message", "Start date must be before or equal to end date",
-                                "startDate", startDate,
-                                "endDate", endDate
-                        ));
-            }
-
-            logger.info("Manual trigger: Performance sync for range {} to {}", start, end);
-            metaAdsService.syncPerformanceDataForDateRange(start, end);
+            logger.info("Manual trigger: Force full sync for account {}", accountId);
+            metaAdsService.forceFullSync(accountId);
 
             return ResponseEntity.ok(Map.of(
                     "status", "success",
-                    "message", "Performance sync completed for range: " + startDate + " to " + endDate,
-                    "startDate", startDate,
-                    "endDate", endDate,
+                    "message", "Force full sync completed for account: " + accountId,
+                    "accountId", accountId,
                     "timestamp", LocalDateTime.now().toString()
             ));
-        } catch (DateTimeParseException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "status", "error",
-                            "message", "Invalid date format. Use YYYY-MM-DD format",
-                            "example", "startDate=2025-01-01&endDate=2025-01-15"
-                    ));
         } catch (Exception e) {
-            logger.error("Performance sync failed for range {} to {}: {}", startDate, endDate, e.getMessage());
+            logger.error("Force full sync failed for account {}: {}", accountId, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "status", "error",
                             "message", e.getMessage(),
-                            "startDate", startDate,
-                            "endDate", endDate
+                            "accountId", accountId,
+                            "timestamp", LocalDateTime.now().toString()
                     ));
         }
     }
 
+    // ==================== STATUS & MONITORING ====================
+
+//    /**
+//     * Get system status and sync statistics
+//     */
+//    @GetMapping("/status")
+//    public ResponseEntity<Map<String, Object>> getStatus() {
+//        try {
+//            // Test connectivity
+//            boolean isConnected = metaAdsConnector.testConnectivity();
+//
+//            // Get sync statistics
+//            SyncStateDao.SyncStats syncStats = metaAdsService.getSyncStats();
+//
+//            return ResponseEntity.ok(Map.of(
+//                    "status", "success",
+//                    "apiConnected", isConnected,
+//                    "syncStats", Map.of(
+//                            "totalAccounts", syncStats.getTotalAccounts(),
+//                            "successfulSyncs", syncStats.getSuccessfulSyncs(),
+//                            "failedSyncs", syncStats.getFailedSyncs(),
+//                            "lastSyncTime", syncStats.getLastSyncTime() != null ?
+//                                    syncStats.getLastSyncTime().toString() : "Never"
+//                    ),
+//                    "timestamp", LocalDateTime.now().toString()
+//            ));
+//        } catch (Exception e) {
+//            logger.error("Failed to get status: {}", e.getMessage());
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+//                    .body(Map.of(
+//                            "status", "error",
+//                            "message", e.getMessage(),
+//                            "timestamp", LocalDateTime.now().toString()
+//                    ));
+//        }
+//    }
+
     /**
-     * UPDATED: Enhanced full sync (now defaults to today)
+     * Get connectivity status
      */
-    @PostMapping("/sync/full")
-    public ResponseEntity<Map<String, Object>> triggerFullSync() {
+    @GetMapping("/connectivity")
+    public ResponseEntity<Map<String, Object>> getConnectivity() {
         try {
-            logger.info("Manual trigger: Full sync (hierarchy + today performance)");
-            metaAdsService.performFullSync();
+            boolean isConnected = metaAdsConnector.testConnectivity();
 
             return ResponseEntity.ok(Map.of(
                     "status", "success",
-                    "message", "Full sync completed (hierarchy + today performance)",
-                    "date", LocalDate.now().toString(),
+                    "connected", isConnected,
+                    "message", isConnected ? "Meta API connectivity verified" : "Meta API connection failed",
                     "timestamp", LocalDateTime.now().toString()
             ));
         } catch (Exception e) {
-            logger.error("Full sync failed: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("status", "error", "message", e.getMessage()));
-        }
-    }
-
-    /**
-     * NEW: Full sync for specific date
-     */
-    @PostMapping("/sync/full/date/{date}")
-    public ResponseEntity<Map<String, Object>> triggerFullSyncForDate(@PathVariable String date) {
-        try {
-            LocalDate targetDate = LocalDate.parse(date);
-            logger.info("Manual trigger: Full sync for date {}", targetDate);
-
-            metaAdsService.performFullSyncForDate(targetDate);
-
-            return ResponseEntity.ok(Map.of(
-                    "status", "success",
-                    "message", "Full sync completed for date: " + date,
-                    "date", date,
-                    "timestamp", LocalDateTime.now().toString()
-            ));
-        } catch (DateTimeParseException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "status", "error",
-                            "message", "Invalid date format. Use YYYY-MM-DD format",
-                            "example", "2025-01-15"
-                    ));
-        } catch (Exception e) {
-            logger.error("Full sync failed for date {}: {}", date, e.getMessage());
+            logger.error("Connectivity test failed: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "status", "error",
+                            "connected", false,
                             "message", e.getMessage(),
-                            "date", date
+                            "timestamp", LocalDateTime.now().toString()
                     ));
         }
     }
 
-    /**
-     * Trigger hierarchy sync only
-     */
-    @PostMapping("/sync/hierarchy")
-    public ResponseEntity<Map<String, String>> triggerHierarchySync() {
-        try {
-            dataSyncScheduler.syncAccountHierarchy();
-            return ResponseEntity.ok(Map.of("status", "success", "message", "Hierarchy sync completed"));
-        } catch (Exception e) {
-            return ResponseEntity.status(500)
-                    .body(Map.of("status", "error", "message", e.getMessage()));
-        }
-    }
+//    /**
+//     * Get detailed sync statistics
+//     */
+//    @GetMapping("/stats")
+//    public ResponseEntity<Map<String, Object>> getSyncStats() {
+//        try {
+//            SyncStateDao.SyncStats syncStats = metaAdsService.getSyncStats();
+//
+//            return ResponseEntity.ok(Map.of(
+//                    "status", "success",
+//                    "statistics", Map.of(
+//                            "totalAccounts", syncStats.getTotalAccounts(),
+//                            "successfulSyncs", syncStats.getSuccessfulSyncs(),
+//                            "failedSyncs", syncStats.getFailedSyncs(),
+//                            "successRate", syncStats.getTotalAccounts() > 0 ?
+//                                    (double) syncStats.getSuccessfulSyncs() / syncStats.getTotalAccounts() * 100 : 0,
+//                            "lastSyncTime", syncStats.getLastSyncTime() != null ?
+//                                    syncStats.getLastSyncTime().toString() : "Never",
+//                            "lastUpdateTime", syncStats.getLastUpdateTime() != null ?
+//                                    syncStats.getLastUpdateTime().toString() : "Never"
+//                    ),
+//                    "timestamp", LocalDateTime.now().toString()
+//            ));
+//        } catch (Exception e) {
+//            logger.error("Failed to get sync statistics: {}", e.getMessage());
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+//                    .body(Map.of(
+//                            "status", "error",
+//                            "message", e.getMessage(),
+//                            "timestamp", LocalDateTime.now().toString()
+//                    ));
+//        }
+//    }
+
+    // ==================== HEALTH CHECKS ====================
 
     /**
-     * Trigger performance data sync only
+     * Simple health check
      */
-    @PostMapping("/sync/performance")
-    public ResponseEntity<Map<String, String>> triggerPerformanceSync() {
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> healthCheck() {
         try {
-            dataSyncScheduler.syncDailyPerformanceData();
-            return ResponseEntity.ok(Map.of("status", "success", "message", "Performance sync completed"));
+            return ResponseEntity.ok(Map.of(
+                    "status", "UP",
+                    "service", "SchedulerController",
+                    "timestamp", LocalDateTime.now().toString()
+            ));
         } catch (Exception e) {
-            return ResponseEntity.status(500)
-                    .body(Map.of("status", "error", "message", e.getMessage()));
-        }
-    }
-
-
-
-    /**
-     * Get system status
-     */
-    @GetMapping("/status")
-    public ResponseEntity<MetaAdsService.SyncStatus> getStatus() {
-        try {
-            MetaAdsService.SyncStatus status = metaAdsService.getSyncStatus();
-            return ResponseEntity.ok(status);
-        } catch (Exception e) {
-            return ResponseEntity.status(500).build();
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of(
+                            "status", "DOWN",
+                            "service", "SchedulerController",
+                            "error", e.getMessage(),
+                            "timestamp", LocalDateTime.now().toString()
+                    ));
         }
     }
 }
