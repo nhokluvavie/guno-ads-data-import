@@ -10,6 +10,7 @@ import com.gunoads.dao.*;
 import com.gunoads.model.dto.*;
 import com.gunoads.model.entity.*;
 import com.gunoads.exception.MetaApiException;
+import com.gunoads.processor.PlacementExtractor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class MetaAdsService {
@@ -35,6 +39,7 @@ public class MetaAdsService {
     @Autowired private AdsReportingDao adsReportingDao;
     @Autowired private AdsProcessingDateDao adsProcessingDateDao;
     @Autowired private SyncStateDao syncStateDao;
+    @Autowired private PlacementExtractor placementExtractor;
 
     /**
      * Initialize sync tracking
@@ -93,7 +98,7 @@ public class MetaAdsService {
     }
 
     /**
-     * MAIN: Sync performance data (full sync cho insights)
+     * UPDATED: Sync performance data với placement extraction
      */
     @Transactional
     public void syncPerformanceDataForDate(LocalDate date) throws MetaApiException {
@@ -107,15 +112,28 @@ public class MetaAdsService {
 
             for (MetaAccountDto accountDto : accounts) {
                 try {
-                    List<MetaInsightsDto> insights = metaAdsConnector.fetchInsights(
-                            accountDto.getId(), date, date);
+                    String accountId = accountDto.getId();
 
-                    if (!insights.isEmpty()) {
-                        List<AdsReporting> reporting = dataTransformer.transformInsightsList(insights);
-                        batchUpsertReporting(reporting);
-                        logger.info("✅ Account {}: {} insights processed",
-                                accountDto.getId(), insights.size());
+                    // STEP 1: Fetch insights data (unchanged)
+                    List<MetaInsightsDto> insights = metaAdsConnector.fetchInsights(
+                            accountId, date, date);
+
+                    if (insights.isEmpty()) {
+                        logger.info("⚪ No insights data for account {} on {}", accountId, date);
+                        continue;
                     }
+
+                    logger.info("📊 Account {}: {} insights fetched", accountId, insights.size());
+
+                    // STEP 2: NEW - Extract and save placements BEFORE saving reporting
+                    extractAndSavePlacements(insights, accountId);
+
+                    // STEP 3: Transform and save reporting data (unchanged)
+                    List<AdsReporting> reporting = dataTransformer.transformInsightsList(insights);
+                    batchUpsertReporting(reporting);
+
+                    logger.info("✅ Account {}: {} insights + placements processed",
+                            accountId, insights.size());
 
                 } catch (Exception e) {
                     logger.error("❌ Failed insights for account {}: {}",
@@ -128,6 +146,117 @@ public class MetaAdsService {
         } catch (Exception e) {
             logger.error("❌ Performance data sync failed for date {}: {}", date, e.getMessage());
             throw new MetaApiException("Performance data sync failed", e);
+        }
+    }
+
+// THÊM METHOD MỚI: extractAndSavePlacements()
+    /**
+     * NEW: Extract placements from insights and save to database
+     */
+    private void extractAndSavePlacements(List<MetaInsightsDto> insights, String accountId) {
+        try {
+            logger.info("🔍 Extracting placements from {} insights for account {}",
+                    insights.size(), accountId);
+
+            long startTime = System.currentTimeMillis();
+
+            // Extract unique placements
+            Set<MetaPlacementDto> placementDtos = placementExtractor.extractPlacementsFromInsights(insights);
+
+            if (placementDtos.isEmpty()) {
+                logger.info("⚪ No placements extracted for account {}", accountId);
+                return;
+            }
+
+            // Transform to entities
+            List<Placement> placements = new ArrayList<>();
+            for (MetaPlacementDto dto : placementDtos) {
+                Placement placement = dataTransformer.transformPlacement(dto);
+                if (placement != null) {
+                    placements.add(placement);
+                }
+            }
+
+            // Batch upsert placements
+            if (!placements.isEmpty()) {
+                batchUpsertPlacements(placements);
+
+                long duration = System.currentTimeMillis() - startTime;
+                logger.info("✅ Account {}: {} placements extracted and saved in {}ms",
+                        accountId, placements.size(), duration);
+            }
+
+        } catch (Exception e) {
+            logger.warn("⚠️ Failed to extract placements for account {}: {}", accountId, e.getMessage());
+            // Don't fail the entire sync if placement extraction fails
+        }
+    }
+
+// THÊM METHOD MỚI: batchUpsertPlacements()
+    /**
+     * NEW: Batch upsert placements với duplicate handling
+     */
+    private void batchUpsertPlacements(List<Placement> placements) {
+        if (placements.isEmpty()) return;
+
+        try {
+            // Check existing placements to avoid duplicates
+            Set<String> existingIds = new HashSet<>();
+            List<Placement> newPlacements = new ArrayList<>();
+
+            for (Placement placement : placements) {
+                if (!existingIds.contains(placement.getId()) && !placementDao.existsById(placement.getId())) {
+                    newPlacements.add(placement);
+                    existingIds.add(placement.getId());
+                }
+            }
+
+            if (!newPlacements.isEmpty()) {
+                placementDao.batchInsert(newPlacements);
+                logger.debug("💾 Inserted {} new placements", newPlacements.size());
+            }
+
+        } catch (Exception e) {
+            logger.warn("⚠️ Batch placement insert failed, trying individual inserts: {}", e.getMessage());
+
+            // Fallback: individual inserts
+            int successCount = 0;
+            for (Placement placement : placements) {
+                try {
+                    if (!placementDao.existsById(placement.getId())) {
+                        placementDao.insert(placement);
+                        successCount++;
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Failed to insert placement {}: {}", placement.getId(), ex.getMessage());
+                }
+            }
+
+            logger.info("💾 Individual placement inserts: {}/{} successful", successCount, placements.size());
+        }
+    }
+
+// THÊM METHOD MỚI: syncPlacementsFromInsights() - for standalone use
+    /**
+     * NEW: Standalone method to sync placements for specific account and date
+     */
+    @Transactional
+    public void syncPlacementsFromInsights(String accountId, LocalDate date) throws MetaApiException {
+        logger.info("📍 Starting placement sync for account {} on {}", accountId, date);
+
+        try {
+            List<MetaInsightsDto> insights = metaAdsConnector.fetchInsights(accountId, date, date);
+
+            if (!insights.isEmpty()) {
+                extractAndSavePlacements(insights, accountId);
+                logger.info("✅ Placement sync completed for account {} on {}", accountId, date);
+            } else {
+                logger.info("⚪ No insights data found for placement sync");
+            }
+
+        } catch (Exception e) {
+            logger.error("❌ Placement sync failed for account {} on {}: {}", accountId, date, e.getMessage());
+            throw new MetaApiException("Placement sync failed", e);
         }
     }
 

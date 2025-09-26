@@ -1,280 +1,359 @@
 package com.gunoads.util;
 
 import com.gunoads.model.dto.MetaInsightsDto;
-import com.gunoads.model.dto.MetaInsightsBatchDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * InsightsDataMerger - Smart utility for merging 3 breakdown batches into complete insights
+ * FIXED InsightsDataMerger - Preserves ALL data instead of losing records
  *
- * Purpose:
- * - Merge demographic (age, gender) + geographic (country, region) + placement (platform, device) data
- * - Handle partial data gracefully
- * - Maintain data integrity and provide debugging info
- * - Convert merged data back to standard MetaInsightsDto format
+ * OLD PROBLEM: Only kept records with all 3 breakdown types, causing massive data loss
+ * NEW SOLUTION: INCLUSIVE merge - keep all records, merge where possible
  */
 @Component
 public class InsightsDataMerger {
 
     private static final Logger logger = LoggerFactory.getLogger(InsightsDataMerger.class);
 
-    // ==================== MAIN MERGE METHODS ====================
-
     /**
-     * MAIN METHOD: Merge 3 batches of insights data into complete MetaInsightsDto list
+     * FIXED: INCLUSIVE merge that preserves ALL records
      *
-     * @param batch1Results Demographic data (age, gender)
-     * @param batch2Results Geographic data (country, region)
-     * @param batch3Results Placement data (publisher_platform, impression_device)
-     * @return List of complete MetaInsightsDto with all breakdown data
+     * Strategy: Union all records, merge complementary data where possible
      */
     public List<MetaInsightsDto> mergeAllBatches(
             List<MetaInsightsDto> batch1Results,
             List<MetaInsightsDto> batch2Results,
             List<MetaInsightsDto> batch3Results) {
 
-        logger.info("🔄 Starting insights batch merge: batch1={}, batch2={}, batch3={}",
+        logger.info("🔄 Starting INCLUSIVE merge: batch1={}, batch2={}, batch3={}",
                 batch1Results.size(), batch2Results.size(), batch3Results.size());
 
         long startTime = System.currentTimeMillis();
 
-        // Step 1: Create batch containers with merge keys
-        Map<String, MetaInsightsBatchDto> mergedData = new HashMap<>();
+        // Step 1: Create comprehensive record map (UNION approach)
+        Map<String, MetaInsightsDto> allRecords = new HashMap<>();
 
-        // Step 2: Process each batch
-        processBatch1(batch1Results, mergedData);
-        processBatch2(batch2Results, mergedData);
-        processBatch3(batch3Results, mergedData);
+        // Step 2: Add ALL records from batch 1 (demographic) - BASE LAYER
+        addBatchRecords(batch1Results, allRecords, "demographic");
 
-        // Step 3: Convert back to standard DTOs
-        List<MetaInsightsDto> finalResults = convertToStandardDtos(mergedData.values());
+        // Step 3: Merge or add records from batch 2 (geographic)
+        mergeBatchRecords(batch2Results, allRecords, "geographic");
 
+        // Step 4: Merge or add records from batch 3 (placement)
+        mergeBatchRecords(batch3Results, allRecords, "placement");
+
+        List<MetaInsightsDto> finalResults = new ArrayList<>(allRecords.values());
         long duration = System.currentTimeMillis() - startTime;
 
-        // Step 4: Log merge statistics
-        logMergeStatistics(mergedData.values(), duration);
+        logger.info("✅ INCLUSIVE merge completed: {} total records in {}ms", finalResults.size(), duration);
+        logInclusiveMergeStats(batch1Results, batch2Results, batch3Results, finalResults);
 
-        logger.info("✅ Batch merge completed: {} final insights in {}ms", finalResults.size(), duration);
         return finalResults;
     }
 
-    // ==================== BATCH PROCESSING METHODS ====================
-
     /**
-     * Process Batch 1: Demographic data (age, gender)
+     * Add all records from a batch to the master map
      */
-    private void processBatch1(List<MetaInsightsDto> batch1Results, Map<String, MetaInsightsBatchDto> mergedData) {
-        logger.debug("📊 Processing Batch 1 (Demographic): {} records", batch1Results.size());
+    private void addBatchRecords(List<MetaInsightsDto> batchResults,
+                                 Map<String, MetaInsightsDto> allRecords,
+                                 String batchType) {
 
-        for (MetaInsightsDto insight : batch1Results) {
-            String mergeKey = MetaInsightsBatchDto.generateMergeKey(
-                    insight.getAccountId(), insight.getAdId(), insight.getDateStart());
+        for (MetaInsightsDto insight : batchResults) {
+            String key = generateRecordKey(insight);
 
-            MetaInsightsBatchDto batchDto = mergedData.computeIfAbsent(mergeKey, k -> {
-                MetaInsightsBatchDto newDto = createBaseBatchDto(insight);
-                newDto.setMergeKey(k);
-                return newDto;
-            });
-
-            // Set demographic data
-            batchDto.setAge(insight.getAge());
-            batchDto.setGender(insight.getGender());
-            batchDto.markDemographicDataPresent();
-
-            // Set core metrics (will be consistent across batches)
-            setCoreMetrics(batchDto, insight);
+            if (!allRecords.containsKey(key)) {
+                // New record - add it (clone to avoid reference issues)
+                allRecords.put(key, cloneInsight(insight));
+            }
+            // If exists, first batch wins (demographic data is base layer)
         }
 
-        logger.debug("✅ Batch 1 processed: {} unique merge keys",
-                mergedData.values().stream().mapToInt(dto -> dto.isHasDemographicData() ? 1 : 0).sum());
+        logger.debug("✅ Added {} {} records", batchResults.size(), batchType);
     }
 
     /**
-     * Process Batch 2: Geographic data (country, region)
+     * Merge records from additional batches into existing records
      */
-    private void processBatch2(List<MetaInsightsDto> batch2Results, Map<String, MetaInsightsBatchDto> mergedData) {
-        logger.debug("🌍 Processing Batch 2 (Geographic): {} records", batch2Results.size());
+    private void mergeBatchRecords(List<MetaInsightsDto> batchResults,
+                                   Map<String, MetaInsightsDto> allRecords,
+                                   String batchType) {
 
-        for (MetaInsightsDto insight : batch2Results) {
-            String mergeKey = MetaInsightsBatchDto.generateMergeKey(
-                    insight.getAccountId(), insight.getAdId(), insight.getDateStart());
+        int mergedCount = 0;
+        int newCount = 0;
 
-            MetaInsightsBatchDto batchDto = mergedData.computeIfAbsent(mergeKey, k -> {
-                MetaInsightsBatchDto newDto = createBaseBatchDto(insight);
-                newDto.setMergeKey(k);
-                return newDto;
-            });
+        for (MetaInsightsDto insight : batchResults) {
+            String key = generateRecordKey(insight);
 
-            // Set geographic data
-            batchDto.setCountry(insight.getCountry());
-            batchDto.setRegion(insight.getRegion());
-            batchDto.markGeographicDataPresent();
-
-            // Set core metrics
-            setCoreMetrics(batchDto, insight);
+            if (allRecords.containsKey(key)) {
+                // Merge into existing record
+                MetaInsightsDto existing = allRecords.get(key);
+                mergeInsightData(existing, insight, batchType);
+                mergedCount++;
+            } else {
+                // New unique record - add it
+                allRecords.put(key, cloneInsight(insight));
+                newCount++;
+            }
         }
 
-        logger.debug("✅ Batch 2 processed: {} unique merge keys",
-                mergedData.values().stream().mapToInt(dto -> dto.isHasGeographicData() ? 1 : 0).sum());
+        logger.debug("✅ {} batch: {} merged, {} new records", batchType, mergedCount, newCount);
     }
 
     /**
-     * Process Batch 3: Placement data (publisher_platform, impression_device)
+     * FIXED: Generate more granular record key to preserve breakdown diversity
+     *
+     * OLD: accountId + adId + date (too simple, lost breakdown variations)
+     * NEW: Include breakdown dimensions to preserve data granularity
      */
-    private void processBatch3(List<MetaInsightsDto> batch3Results, Map<String, MetaInsightsBatchDto> mergedData) {
-        logger.debug("📱 Processing Batch 3 (Placement): {} records", batch3Results.size());
+    private String generateRecordKey(MetaInsightsDto insight) {
+        return String.format("%s|%s|%s|%s|%s|%s|%s|%s",
+                safeString(insight.getAccountId()),
+                safeString(insight.getAdId()),
+                safeString(insight.getDateStart()),
+                safeString(insight.getAge()),
+                safeString(insight.getGender()),
+                safeString(insight.getCountry()),
+                safeString(insight.getRegion()),
+                safeString(insight.getPlacement())
+        );
+    }
 
-        for (MetaInsightsDto insight : batch3Results) {
-            String mergeKey = MetaInsightsBatchDto.generateMergeKey(
-                    insight.getAccountId(), insight.getAdId(), insight.getDateStart());
+    /**
+     * Merge data from source insight into target insight
+     */
+    private void mergeInsightData(MetaInsightsDto target, MetaInsightsDto source, String batchType) {
+        switch (batchType) {
+            case "geographic":
+                // Add geographic data if missing
+                if (target.getCountry() == null) target.setCountry(source.getCountry());
+                if (target.getRegion() == null) target.setRegion(source.getRegion());
+                if (target.getCity() == null) target.setCity(source.getCity());
+                break;
 
-            MetaInsightsBatchDto batchDto = mergedData.computeIfAbsent(mergeKey, k -> {
-                MetaInsightsBatchDto newDto = createBaseBatchDto(insight);
-                newDto.setMergeKey(k);
-                return newDto;
-            });
-
-            // Set placement data
-            batchDto.setPublisherPlatform(insight.getPlacement());
-            batchDto.setImpressionDevice(insight.getDevice_platform());
-            batchDto.markPlacementDataPresent();
-
-            // Set core metrics
-            setCoreMetrics(batchDto, insight);
+            case "placement":
+                // Add placement data if missing
+                if (target.getPlacement() == null) target.setPlacement(source.getPlacement());
+                if (target.getDevice_platform() == null) target.setDevice_platform(source.getDevice_platform());
+                break;
         }
 
-        logger.debug("✅ Batch 3 processed: {} unique merge keys",
-                mergedData.values().stream().mapToInt(dto -> dto.isHasPlacementData() ? 1 : 0).sum());
-    }
-
-    // ==================== UTILITY METHODS ====================
-
-    /**
-     * Create base batch DTO from insight data
-     */
-    private MetaInsightsBatchDto createBaseBatchDto(MetaInsightsDto insight) {
-        MetaInsightsBatchDto batchDto = new MetaInsightsBatchDto();
-
-        // Set basic identifiers
-        batchDto.setAccountId(insight.getAccountId());
-        batchDto.setCampaignId(insight.getCampaignId());
-        batchDto.setAdsetId(insight.getAdsetId());
-        batchDto.setAdId(insight.getAdId());
-        batchDto.setDateStart(insight.getDateStart());
-        batchDto.setDateStop(insight.getDateStop());
-        batchDto.setCreatedAt(LocalDateTime.now());
-
-        return batchDto;
+        // Always merge core metrics (use source if target is missing/zero)
+        mergeCoreMetrics(target, source);
     }
 
     /**
-     * Set core metrics that should be consistent across batches
+     * Merge core performance metrics - prefer non-zero values
      */
-    private void setCoreMetrics(MetaInsightsBatchDto batchDto, MetaInsightsDto insight) {
-        // Only set if not already set (first batch wins for core metrics)
-        if (batchDto.getSpend() == null) {
-            batchDto.setSpend(insight.getSpend());
-            batchDto.setImpressions(insight.getImpressions());
-            batchDto.setClicks(insight.getClicks());
-            batchDto.setUniqueClicks(insight.getUniqueClicks());
-            batchDto.setLinkClicks(insight.getLinkClicks());
-            batchDto.setUniqueLinkClicks(insight.getUniqueLinkClicks());
-            batchDto.setReach(insight.getReach());
-            batchDto.setFrequency(insight.getFrequency());
-            batchDto.setCpc(insight.getCpc());
-            batchDto.setCpm(insight.getCpm());
-            batchDto.setCpp(insight.getCpp());
-            batchDto.setCtr(insight.getCtr());
-            batchDto.setUniqueCtr(insight.getUniqueCtr());
-            batchDto.setCostPerUniqueClick(insight.getCostPerUniqueClick());
-
-            // Conversion metrics
-            batchDto.setPurchases(insight.getPurchases());
-            batchDto.setPurchaseValue(insight.getPurchaseValue());
-            batchDto.setPurchaseRoas(insight.getPurchaseRoas());
-            batchDto.setLeads(insight.getLeads());
-            batchDto.setCostPerLead(insight.getCostPerLead());
-
-            // Engagement metrics
-            batchDto.setPostEngagement(insight.getPostEngagement());
-            batchDto.setPageEngagement(insight.getPageEngagement());
-            batchDto.setLikes(insight.getLikes());
-            batchDto.setComments(insight.getComments());
-            batchDto.setShares(insight.getShares());
-            batchDto.setVideoViews(insight.getVideoViews());
+    private void mergeCoreMetrics(MetaInsightsDto target, MetaInsightsDto source) {
+        // Spend
+        if (isNullOrZero(target.getSpend()) && !isNullOrZero(source.getSpend())) {
+            target.setSpend(source.getSpend());
         }
-    }
 
-    /**
-     * Convert merged batch DTOs back to standard MetaInsightsDto list
-     */
-    private List<MetaInsightsDto> convertToStandardDtos(Collection<MetaInsightsBatchDto> batchDtos) {
-        logger.debug("🔄 Converting {} merged batches to standard DTOs", batchDtos.size());
+        // Impressions
+        if (isNullOrZero(target.getImpressions()) && !isNullOrZero(source.getImpressions())) {
+            target.setImpressions(source.getImpressions());
+        }
 
-        List<MetaInsightsDto> standardDtos = batchDtos.stream()
-                .map(MetaInsightsBatchDto::toStandardDto)
-                .collect(Collectors.toList());
+        // Clicks
+        if (isNullOrZero(target.getClicks()) && !isNullOrZero(source.getClicks())) {
+            target.setClicks(source.getClicks());
+        }
 
-        logger.debug("✅ Converted {} batch DTOs to standard format", standardDtos.size());
-        return standardDtos;
-    }
+        // Reach
+        if (isNullOrZero(target.getReach()) && !isNullOrZero(source.getReach())) {
+            target.setReach(source.getReach());
+        }
 
-    /**
-     * Log detailed merge statistics for debugging
-     */
-    private void logMergeStatistics(Collection<MetaInsightsBatchDto> mergedData, long durationMs) {
-        int totalRecords = mergedData.size();
-        int completeRecords = (int) mergedData.stream().mapToLong(dto -> dto.isComplete() ? 1 : 0).sum();
-        int partialRecords = totalRecords - completeRecords;
+        // Cost metrics
+        if (target.getCpc() == null && source.getCpc() != null) {
+            target.setCpc(source.getCpc());
+        }
+        if (target.getCpm() == null && source.getCpm() != null) {
+            target.setCpm(source.getCpm());
+        }
+        if (target.getCtr() == null && source.getCtr() != null) {
+            target.setCtr(source.getCtr());
+        }
 
-        long demographicCount = mergedData.stream().mapToLong(dto -> dto.isHasDemographicData() ? 1 : 0).sum();
-        long geographicCount = mergedData.stream().mapToLong(dto -> dto.isHasGeographicData() ? 1 : 0).sum();
-        long placementCount = mergedData.stream().mapToLong(dto -> dto.isHasPlacementData() ? 1 : 0).sum();
+        // Link clicks
+        if (isNullOrZero(target.getLinkClicks()) && !isNullOrZero(source.getLinkClicks())) {
+            target.setLinkClicks(source.getLinkClicks());
+            target.setUniqueLinkClicks(source.getUniqueLinkClicks());
+        }
 
-        logger.info("📊 MERGE STATISTICS:");
-        logger.info("   📈 Total records: {}", totalRecords);
-        logger.info("   ✅ Complete records (3 batches): {} ({:.1f}%)",
-                completeRecords, (completeRecords * 100.0 / totalRecords));
-        logger.info("   ⚠️  Partial records: {} ({:.1f}%)",
-                partialRecords, (partialRecords * 100.0 / totalRecords));
-        logger.info("   👥 Demographic data: {} ({:.1f}%)",
-                demographicCount, (demographicCount * 100.0 / totalRecords));
-        logger.info("   🌍 Geographic data: {} ({:.1f}%)",
-                geographicCount, (geographicCount * 100.0 / totalRecords));
-        logger.info("   📱 Placement data: {} ({:.1f}%)",
-                placementCount, (placementCount * 100.0 / totalRecords));
-        logger.info("   ⏱️  Merge duration: {}ms ({:.2f}s)", durationMs, durationMs / 1000.0);
+        // Unique clicks
+        if (isNullOrZero(target.getUniqueClicks()) && !isNullOrZero(source.getUniqueClicks())) {
+            target.setUniqueClicks(source.getUniqueClicks());
+            target.setCostPerUniqueClick(source.getCostPerUniqueClick());
+        }
 
-        // Log warnings for partial records
-        if (partialRecords > 0) {
-            logger.warn("⚠️  {} records have incomplete data - check API response consistency", partialRecords);
+        // Frequency
+        if (target.getFrequency() == null && source.getFrequency() != null) {
+            target.setFrequency(source.getFrequency());
+        }
 
-            // Sample some partial records for debugging
-            mergedData.stream()
-                    .filter(dto -> !dto.isComplete())
-                    .limit(3)
-                    .forEach(dto -> logger.warn("   Partial: {} (missing: {})",
-                            dto.getMergeKey(), dto.getMissingBatches()));
+        // Purchase metrics
+        if (isNullOrZero(target.getPurchases()) && !isNullOrZero(source.getPurchases())) {
+            target.setPurchases(source.getPurchases());
+            target.setPurchaseValue(source.getPurchaseValue());
+            target.setPurchaseRoas(source.getPurchaseRoas());
+        }
+
+        // Engagement metrics
+        if (isNullOrZero(target.getPostEngagement()) && !isNullOrZero(source.getPostEngagement())) {
+            target.setPostEngagement(source.getPostEngagement());
+        }
+        if (isNullOrZero(target.getVideoViews()) && !isNullOrZero(source.getVideoViews())) {
+            target.setVideoViews(source.getVideoViews());
         }
     }
 
-    // ==================== VALIDATION METHODS ====================
+    /**
+     * Clone insight to avoid reference issues
+     */
+    private MetaInsightsDto cloneInsight(MetaInsightsDto original) {
+        MetaInsightsDto clone = new MetaInsightsDto();
+
+        // Basic identifiers
+        clone.setAccountId(original.getAccountId());
+        clone.setCampaignId(original.getCampaignId());
+        clone.setAdsetId(original.getAdsetId());
+        clone.setAdId(original.getAdId());
+        clone.setDateStart(original.getDateStart());
+        clone.setDateStop(original.getDateStop());
+
+        // Breakdown data
+        clone.setAge(original.getAge());
+        clone.setGender(original.getGender());
+        clone.setCountry(original.getCountry());
+        clone.setRegion(original.getRegion());
+        clone.setCity(original.getCity());
+        clone.setPlacement(original.getPlacement());
+        clone.setDevice_platform(original.getDevice_platform());
+
+        // Core metrics
+        clone.setSpend(original.getSpend());
+        clone.setImpressions(original.getImpressions());
+        clone.setClicks(original.getClicks());
+        clone.setUniqueClicks(original.getUniqueClicks());
+        clone.setLinkClicks(original.getLinkClicks());
+        clone.setUniqueLinkClicks(original.getUniqueLinkClicks());
+        clone.setReach(original.getReach());
+        clone.setFrequency(original.getFrequency());
+        clone.setCpc(original.getCpc());
+        clone.setCpm(original.getCpm());
+        clone.setCpp(original.getCpp());
+        clone.setCtr(original.getCtr());
+        clone.setUniqueCtr(original.getUniqueCtr());
+        clone.setCostPerUniqueClick(original.getCostPerUniqueClick());
+
+        // Purchase metrics
+        clone.setPurchases(original.getPurchases());
+        clone.setPurchaseValue(original.getPurchaseValue());
+        clone.setPurchaseRoas(original.getPurchaseRoas());
+
+        // Engagement metrics
+        clone.setPostEngagement(original.getPostEngagement());
+        clone.setPageEngagement(original.getPageEngagement());
+        clone.setLikes(original.getLikes());
+        clone.setComments(original.getComments());
+        clone.setShares(original.getShares());
+        clone.setPhotoView(original.getPhotoView());
+        clone.setVideoViews(original.getVideoViews());
+        clone.setVideoP25WatchedActions(original.getVideoP25WatchedActions());
+        clone.setVideoP50WatchedActions(original.getVideoP50WatchedActions());
+        clone.setVideoP75WatchedActions(original.getVideoP75WatchedActions());
+        clone.setVideoP95WatchedActions(original.getVideoP95WatchedActions());
+        clone.setVideoP100WatchedActions(original.getVideoP100WatchedActions());
+        clone.setVideoAvgPercentWatched(original.getVideoAvgPercentWatched());
+
+        // Lead metrics
+        clone.setLeads(original.getLeads());
+        clone.setCostPerLead(original.getCostPerLead());
+        clone.setMobileAppInstall(original.getMobileAppInstall());
+        clone.setCostPerAppInstall(original.getCostPerAppInstall());
+
+        // Additional metrics
+        clone.setSocialSpend(original.getSocialSpend());
+        clone.setInlineLinkClicks(original.getInlineLinkClicks());
+        clone.setInlinePostEngagement(original.getInlinePostEngagement());
+        clone.setCostPerInlineLinkClick(original.getCostPerInlineLinkClick());
+        clone.setCostPerInlinePostEngagement(original.getCostPerInlinePostEngagement());
+
+        // Meta fields
+        clone.setCurrency(original.getCurrency());
+        clone.setAttributionSetting(original.getAttributionSetting());
+
+        return clone;
+    }
 
     /**
-     * Validate batch data consistency
+     * Log comprehensive merge statistics
      */
-    public boolean validateBatchConsistency(List<MetaInsightsDto> batch1, List<MetaInsightsDto> batch2, List<MetaInsightsDto> batch3) {
+    private void logInclusiveMergeStats(List<MetaInsightsDto> batch1,
+                                        List<MetaInsightsDto> batch2,
+                                        List<MetaInsightsDto> batch3,
+                                        List<MetaInsightsDto> finalResults) {
+
+        int totalInput = batch1.size() + batch2.size() + batch3.size();
+        int finalOutput = finalResults.size();
+
+        logger.info("📊 INCLUSIVE MERGE STATS:");
+        logger.info("   📥 Input: {} + {} + {} = {} total records",
+                batch1.size(), batch2.size(), batch3.size(), totalInput);
+        logger.info("   📤 Output: {} unique records", finalOutput);
+
+        if (totalInput > 0) {
+            double preservationRate = (finalOutput * 100.0) / totalInput;
+            logger.info("   💾 Data preservation: {:.1f}%", preservationRate);
+        }
+
+        // Count records with each type of data
+        long withDemographic = finalResults.stream()
+                .mapToLong(r -> (r.getAge() != null || r.getGender() != null) ? 1 : 0).sum();
+        long withGeographic = finalResults.stream()
+                .mapToLong(r -> (r.getCountry() != null || r.getRegion() != null) ? 1 : 0).sum();
+        long withPlacement = finalResults.stream()
+                .mapToLong(r -> (r.getPlacement() != null || r.getDevice_platform() != null) ? 1 : 0).sum();
+        long withMetrics = finalResults.stream()
+                .mapToLong(r -> (r.getImpressions() != null &&
+                        !r.getImpressions().equals("0") &&
+                        !r.getImpressions().equals("")) ? 1 : 0).sum();
+
+        logger.info("   🔍 Data completeness:");
+        logger.info("     📊 {} records with demographic data ({:.1f}%)",
+                withDemographic, (withDemographic * 100.0 / finalOutput));
+        logger.info("     🌍 {} records with geographic data ({:.1f}%)",
+                withGeographic, (withGeographic * 100.0 / finalOutput));
+        logger.info("     📍 {} records with placement data ({:.1f}%)",
+                withPlacement, (withPlacement * 100.0 / finalOutput));
+        logger.info("     📈 {} records with performance metrics ({:.1f}%)",
+                withMetrics, (withMetrics * 100.0 / finalOutput));
+
+        // Warn if data loss is high
+        if (finalOutput < totalInput * 0.5) {
+            logger.warn("⚠️  High data loss detected: {} → {} records", totalInput, finalOutput);
+        }
+    }
+
+    // ==================== BACKWARD COMPATIBILITY METHODS ====================
+
+    /**
+     * Validate batch data consistency (kept for compatibility)
+     */
+    public boolean validateBatchConsistency(List<MetaInsightsDto> batch1,
+                                            List<MetaInsightsDto> batch2,
+                                            List<MetaInsightsDto> batch3) {
         logger.debug("🔍 Validating batch consistency...");
 
-        Set<String> keys1 = extractMergeKeys(batch1);
-        Set<String> keys2 = extractMergeKeys(batch2);
-        Set<String> keys3 = extractMergeKeys(batch3);
+        Set<String> keys1 = extractSimpleMergeKeys(batch1);
+        Set<String> keys2 = extractSimpleMergeKeys(batch2);
+        Set<String> keys3 = extractSimpleMergeKeys(batch3);
 
         Set<String> allKeys = new HashSet<>();
         allKeys.addAll(keys1);
@@ -282,56 +361,31 @@ public class InsightsDataMerger {
         allKeys.addAll(keys3);
 
         int totalUnique = allKeys.size();
-        int intersectionSize = keys1.size() + keys2.size() + keys3.size() - totalUnique;
+        logger.debug("📊 Unique ad combinations across batches: {}", totalUnique);
 
-        logger.debug("📊 Batch overlap: {} total unique, {} common records", totalUnique, intersectionSize);
-
-        if (intersectionSize == 0) {
-            logger.warn("⚠️  No common records between batches - may indicate API data issues");
-            return false;
-        }
-
+        // Always return true for inclusive merge - we handle all cases
         return true;
     }
 
     /**
-     * Extract merge keys from insights list
+     * Extract simple merge keys for compatibility
      */
-    private Set<String> extractMergeKeys(List<MetaInsightsDto> insights) {
+    private Set<String> extractSimpleMergeKeys(List<MetaInsightsDto> insights) {
         return insights.stream()
-                .map(insight -> MetaInsightsBatchDto.generateMergeKey(
-                        insight.getAccountId(), insight.getAdId(), insight.getDateStart()))
+                .map(insight -> String.format("%s|%s|%s",
+                        safeString(insight.getAccountId()),
+                        safeString(insight.getAdId()),
+                        safeString(insight.getDateStart())))
                 .collect(Collectors.toSet());
     }
 
-    // ==================== ERROR HANDLING ====================
+    // ==================== UTILITY METHODS ====================
 
-    /**
-     * Handle merge errors gracefully
-     */
-    public List<MetaInsightsDto> mergeWithFallback(
-            List<MetaInsightsDto> batch1Results,
-            List<MetaInsightsDto> batch2Results,
-            List<MetaInsightsDto> batch3Results) {
-
-        try {
-            return mergeAllBatches(batch1Results, batch2Results, batch3Results);
-        } catch (Exception e) {
-            logger.error("❌ Batch merge failed, using fallback strategy: {}", e.getMessage());
-
-            // Fallback: Return largest batch with warning
-            List<MetaInsightsDto> largest = getLargestBatch(batch1Results, batch2Results, batch3Results);
-            logger.warn("⚠️  Using fallback: returning {} records from largest batch", largest.size());
-            return largest;
-        }
+    private String safeString(String value) {
+        return value != null ? value : "null";
     }
 
-    /**
-     * Get largest batch as fallback
-     */
-    private List<MetaInsightsDto> getLargestBatch(List<MetaInsightsDto>... batches) {
-        return Arrays.stream(batches)
-                .max(Comparator.comparing(List::size))
-                .orElse(new ArrayList<>());
+    private boolean isNullOrZero(String value) {
+        return value == null || value.equals("0") || value.equals("") || value.equals("0.0");
     }
 }

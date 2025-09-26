@@ -45,7 +45,7 @@ public class MetaPlacementDto {
 
         // Create unique placement ID from placement + device
         String device = devicePlatform != null ? devicePlatform : "unknown";
-        return String.format("%s_%s", placement.toLowerCase(), device.toLowerCase())
+        return String.format("%s_%s_%s", placement.toLowerCase(), device.toLowerCase())
                 .replaceAll("[^a-zA-Z0-9_]", "_");
     }
 }

@@ -3,10 +3,13 @@ package com.gunoads.test.e2e;
 import com.gunoads.connector.MetaAdsConnector;
 import com.gunoads.dao.*;
 import com.gunoads.model.dto.MetaAccountDto;
+import com.gunoads.model.dto.MetaPlacementDto;
 import com.gunoads.model.entity.*;
 import com.gunoads.processor.DataTransformer;
+import com.gunoads.processor.PlacementExtractor;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.annotation.Commit;
@@ -15,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.*;
@@ -36,6 +40,9 @@ class NewFlowE2ETest extends BaseE2ETest {
     @Autowired private PlacementDao placementDao;
     @Autowired private AdsReportingDao adsReportingDao;
     @Autowired private AdsProcessingDateDao adsProcessingDateDao;
+    @Autowired private PlacementExtractor placementExtractor;
+    @Autowired private JdbcTemplate jdbcTemplate;
+
 
     private static final LocalDate TEST_DATE = LocalDate.of(2025, 9, 17); // Customize any date you want
     private static String SINGLE_TEST_ACCOUNT_ID = "468073679646974";
@@ -326,11 +333,11 @@ class NewFlowE2ETest extends BaseE2ETest {
 
     @Test
     @Order(5)
-    @DisplayName("📊 E2E: Single Account Performance Data Test - COMPLETE PIPELINE")
+    @DisplayName("📊 E2E: Single Account Performance Data Test - COMPLETE PIPELINE WITH PLACEMENT EXTRACTION")
     @Transactional
     @Commit
     void testSingleAccountPerformanceData() {
-        System.out.println("📊 TEST 5: Single Account Performance Data Test - COMPLETE PIPELINE");
+        System.out.println("📊 TEST 5: Single Account Performance Data Test - COMPLETE PIPELINE WITH PLACEMENT EXTRACTION");
 
         try {
             assertThat(SINGLE_TEST_ACCOUNT_ID).isNotNull();
@@ -377,8 +384,49 @@ class NewFlowE2ETest extends BaseE2ETest {
                 return; // Exit gracefully if no data
             }
 
-            // === PHASE 3: TRANSFORM DATA ===
-            System.out.println("\n🔄 PHASE 3: Transforming insights to reporting entities...");
+            // === PHASE 3: NEW - EXTRACT PLACEMENTS FROM INSIGHTS ===
+            System.out.println("\n📍 PHASE 3: Extracting placements from insights...");
+            long placementStartTime = System.currentTimeMillis();
+
+            Set<MetaPlacementDto> placementDtos = placementExtractor.extractPlacementsFromInsights(insights);
+            long placementExtractionDuration = System.currentTimeMillis() - placementStartTime;
+
+            System.out.printf("✅ Extracted %d unique placements in %d ms\n",
+                    placementDtos.size(), placementExtractionDuration);
+
+            // Log placement types found
+            if (!placementDtos.isEmpty()) {
+                System.out.println("🔍 Placement types found:");
+                placementDtos.stream()
+                        .limit(5) // Show first 5
+                        .forEach(p -> System.out.printf("   - %s (%s)\n", p.getId(), p.getPlacementName()));
+            }
+
+            // === PHASE 4: TRANSFORM AND SAVE PLACEMENTS ===
+            System.out.println("\n💾 PHASE 4: Transforming and saving placements...");
+            long placementSaveStartTime = System.currentTimeMillis();
+            long placementSaveDuration = 0;
+
+            List<Placement> placements = new ArrayList<>();
+            for (MetaPlacementDto dto : placementDtos) {
+                Placement placement = dataTransformer.transformPlacement(dto);
+                if (placement != null) {
+                    placements.add(placement);
+                }
+            }
+
+            // Save placements using enhanced DAO
+            if (!placements.isEmpty()) {
+                placementDao.batchUpsert(placements);
+                placementSaveDuration = System.currentTimeMillis() - placementSaveStartTime;
+                System.out.printf("✅ Saved %d placements in %d ms\n", placements.size(), placementSaveDuration);
+            } else {
+                placementSaveDuration = System.currentTimeMillis() - placementSaveStartTime;
+                System.out.println("ℹ️  No placements to save");
+            }
+
+            // === PHASE 5: TRANSFORM INSIGHTS TO REPORTING ===
+            System.out.println("\n🔄 PHASE 5: Transforming insights to reporting entities...");
             long transformStart = System.currentTimeMillis();
 
             List<AdsReporting> reportingList = dataTransformer.transformInsightsList(insights);
@@ -391,78 +439,84 @@ class NewFlowE2ETest extends BaseE2ETest {
             // Verify transformation quality
             System.out.println("🔍 Verifying transformation quality...");
             int validRecords = 0;
+            int recordsWithPlacement = 0;
+
             for (AdsReporting reporting : reportingList) {
                 assertThat(reporting.getAccountId()).isNotNull();
                 assertThat(reporting.getAdvertisementId()).isNotNull();
                 assertThat(reporting.getAdsProcessingDt()).isNotNull();
+                assertThat(reporting.getPlacementId()).isNotNull(); // NEW: Verify placement ID exists
 
                 if (reporting.getImpressions() != null && reporting.getImpressions() > 0) {
                     validRecords++;
                 }
+
+                if (reporting.getPlacementId() != null && !reporting.getPlacementId().equals("unknown")) {
+                    recordsWithPlacement++;
+                }
             }
+
             System.out.printf("✅ Transformation quality: %d/%d records have valid impressions data\n",
                     validRecords, reportingList.size());
+            System.out.printf("✅ Placement quality: %d/%d records have valid placement IDs\n",
+                    recordsWithPlacement, reportingList.size());
 
-            // === PHASE 4: ENSURE DATE DIMENSION EXISTS ===
-            System.out.println("\n📅 PHASE 4: Ensuring date dimension exists...");
+            // === PHASE 6: ENSURE DATE DIMENSION EXISTS ===
+            System.out.println("\n📅 PHASE 6: Ensuring date dimension exists...");
             try {
-                // Create AdsProcessingDate for TEST_DATE if not exists
                 if (!adsProcessingDateDao.existsById(TEST_DATE.toString())) {
                     AdsProcessingDate dateRecord = createDateDimension(TEST_DATE);
                     adsProcessingDateDao.insert(dateRecord);
                     System.out.printf("✅ Created date dimension for: %s\n", TEST_DATE);
                 } else {
-                    System.out.printf("ℹ️  Date dimension already exists for: %s\n", TEST_DATE);
+                    System.out.printf("✅ Date dimension already exists for: %s\n", TEST_DATE);
                 }
             } catch (Exception e) {
-                System.out.printf("⚠️  Date dimension creation failed: %s (continuing...)\n", e.getMessage());
+                System.out.printf("⚠️ Could not ensure date dimension: %s\n", e.getMessage());
             }
 
-            // === PHASE 5: INSERT REPORTING DATA INTO DATABASE ===
-            System.out.println("\n💾 PHASE 5: Inserting reporting data into database...");
+            // === PHASE 7: SAVE REPORTING DATA ===
+            System.out.println("\n💾 PHASE 7: Saving reporting data to database...");
             long insertStart = System.currentTimeMillis();
 
             int successfulInserts = 0;
             int failedInserts = 0;
 
+            // Try batch insert first
             try {
-                // Try batch insert first (more efficient)
-                System.out.println("🚀 Attempting batch insert...");
                 adsReportingDao.batchInsert(reportingList);
                 successfulInserts = reportingList.size();
-                System.out.printf("✅ Batch insert successful: %d records\n", successfulInserts);
+                System.out.printf("✅ Batch inserted %d reporting records\n", successfulInserts);
 
             } catch (Exception e) {
-                System.out.printf("⚠️  Batch insert failed: %s\n", e.getMessage());
-                System.out.println("🔄 Falling back to individual inserts...");
+                System.out.printf("⚠️ Batch insert failed: %s\n", e.getMessage());
+                System.out.println("🔄 Trying individual inserts...");
 
                 // Fallback to individual inserts
                 for (AdsReporting reporting : reportingList) {
                     try {
                         adsReportingDao.insert(reporting);
                         successfulInserts++;
-
-                        if (successfulInserts % 10 == 0) {
-                            System.out.printf("   📊 Progress: %d/%d records inserted\n",
-                                    successfulInserts, reportingList.size());
-                        }
                     } catch (Exception ex) {
                         failedInserts++;
-                        System.out.printf("   ❌ Failed to insert record %d: %s\n",
-                                successfulInserts + failedInserts, ex.getMessage());
+                        System.out.printf("  ❌ Failed to insert record: %s\n", ex.getMessage());
                     }
                 }
+
+                System.out.printf("🔄 Individual inserts: %d successful, %d failed\n",
+                        successfulInserts, failedInserts);
             }
 
             long insertDuration = System.currentTimeMillis() - insertStart;
-            System.out.printf("✅ Database insertion completed in %d ms:\n", insertDuration);
-            System.out.printf("   ✅ Successful: %d records\n", successfulInserts);
-            System.out.printf("   ❌ Failed: %d records\n", failedInserts);
-            System.out.printf("   📊 Success rate: %.1f%%\n",
-                    (successfulInserts * 100.0 / reportingList.size()));
 
-            // === PHASE 6: VERIFY DATABASE STATE ===
-            System.out.println("\n🔍 PHASE 6: Verifying final database state...");
+            if (successfulInserts > 0) {
+                System.out.printf("✅ Database insertion: %d records in %d ms\n", successfulInserts, insertDuration);
+                System.out.printf("📊 Success rate: %.1f%%\n",
+                        (successfulInserts * 100.0 / reportingList.size()));
+            }
+
+            // === PHASE 8: VERIFY DATABASE STATE ===
+            System.out.println("\n🔍 PHASE 8: Verifying final database state...");
 
             long finalReporting = adsReportingDao.count();
             long finalAccounts = accountDao.count();
@@ -481,20 +535,47 @@ class NewFlowE2ETest extends BaseE2ETest {
 
             // Database assertions
             assertThat(finalReporting).isGreaterThanOrEqualTo(initialReporting);
+            assertThat(finalPlacements).isGreaterThanOrEqualTo(initialPlacements);
             assertThat(successfulInserts).isGreaterThan(0);
 
             if (successfulInserts > 0) {
                 assertThat(finalReporting).isGreaterThan(initialReporting);
             }
 
-            // === PHASE 7: PERFORMANCE SUMMARY ===
-            long totalDuration = fetchDuration + transformDuration + insertDuration;
+            // NEW: Verify placement-reporting relationship integrity
+            System.out.println("🔗 Verifying placement-reporting relationship integrity...");
+            String integrityCheckSql = """
+            SELECT COUNT(*) FROM tbl_ads_reporting r 
+            LEFT JOIN tbl_placement p ON r.placement_id = p.id 
+            WHERE p.id IS NULL AND r.placement_id != 'unknown'
+            """;
+
+            try {
+                Long orphanedReporting = jdbcTemplate.queryForObject(integrityCheckSql, Long.class);
+                if (orphanedReporting != null && orphanedReporting > 0) {
+                    System.out.printf("⚠️ Warning: %d reporting records have invalid placement references\n", orphanedReporting);
+                } else {
+                    System.out.println("✅ All reporting records have valid placement references");
+                }
+            } catch (Exception e) {
+                System.out.printf("⚠️ Could not verify relationship integrity: %s\n", e.getMessage());
+            }
+
+            // === PHASE 9: PERFORMANCE SUMMARY ===
+            long totalDuration = fetchDuration + placementExtractionDuration +
+                    placementSaveDuration + transformDuration + insertDuration;
+
             System.out.printf("\n⚡ PERFORMANCE SUMMARY:\n");
             System.out.printf("   📡 API Fetch: %d ms (%.2f seconds)\n", fetchDuration, fetchDuration / 1000.0);
+            System.out.printf("   📍 Placement Extraction: %d ms (%.2f seconds)\n", placementExtractionDuration, placementExtractionDuration / 1000.0);
+            System.out.printf("   💾 Placement Save: %d ms (%.2f seconds)\n", placementSaveDuration, placementSaveDuration / 1000.0);
             System.out.printf("   🔄 Transform: %d ms (%.2f seconds)\n", transformDuration, transformDuration / 1000.0);
             System.out.printf("   💾 Database Insert: %d ms (%.2f seconds)\n", insertDuration, insertDuration / 1000.0);
             System.out.printf("   ⏱️  Total Duration: %d ms (%.2f seconds)\n", totalDuration, totalDuration / 1000.0);
-            System.out.printf("   📊 Records per second: %.1f\n", (successfulInserts * 1000.0 / totalDuration));
+
+            if (successfulInserts > 0) {
+                System.out.printf("   📊 Records per second: %.1f\n", (successfulInserts * 1000.0 / totalDuration));
+            }
 
             // Performance assertions
             assertThat(totalDuration).isLessThan(TimeUnit.MINUTES.toMillis(10)); // 10 minutes max
@@ -502,11 +583,13 @@ class NewFlowE2ETest extends BaseE2ETest {
             // === TEST COMPLETION ===
             System.out.printf("\n🎉 COMPLETE PIPELINE SUCCESS:\n");
             System.out.printf("   📈 %d insights fetched with smart batching\n", insights.size());
+            System.out.printf("   📍 %d unique placements extracted\n", placementDtos.size());
+            System.out.printf("   💾 %d placements saved to database\n", placements.size());
             System.out.printf("   🔄 %d entities transformed successfully\n", reportingList.size());
-            System.out.printf("   💾 %d records inserted into database\n", successfulInserts);
+            System.out.printf("   📊 %d records inserted into database\n", successfulInserts);
             System.out.printf("   🚀 End-to-end performance: %.2f seconds\n", totalDuration / 1000.0);
 
-            System.out.println("✅ Single Account Performance Data Test - COMPLETE PIPELINE: PASSED\n");
+            System.out.println("✅ Single Account Performance Data Test - COMPLETE PIPELINE WITH PLACEMENT EXTRACTION: PASSED\n");
 
         } catch (Exception e) {
             System.err.println("❌ Single Account Performance Data Test: FAILED");
