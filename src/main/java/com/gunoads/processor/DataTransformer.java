@@ -289,11 +289,19 @@ public class DataTransformer {
             );
             reporting.setPlacementId(placementId != null ? placementId : "unknown");
 
-            // Date and demographics - RELAXED: Always provide values
+            // Date and demographics - FIXED: Handle missing breakdown data properly
             reporting.setAdsProcessingDt(safeGetStringRelaxed(dto.getDateStart(), "2025-01-01"));
-            reporting.setAgeGroup(safeGetStringRelaxed(dto.getAge(), "unknown"));
-            reporting.setGender(safeGetStringRelaxed(dto.getGender(), "unknown"));
-            reporting.setCountryCode(parseCountryCodeRelaxed(dto.getCountry()));
+
+            // FIX: Handle age_group mapping with proper defaults
+            String ageGroup = mapAgeGroup(dto.getAge());
+            reporting.setAgeGroup(ageGroup);
+
+            // FIX: Handle gender mapping with proper defaults
+            String gender = mapGender(dto.getGender());
+            reporting.setGender(gender);
+
+            // FIX: Handle geographic data with proper defaults
+            reporting.setCountryCode(parseCountryCodeSafe(dto.getCountry()));
             reporting.setRegion(safeGetStringRelaxed(dto.getRegion(), "unknown"));
             reporting.setCity(safeGetStringRelaxed(dto.getCity(), "unknown"));
             reporting.setCountryName(safeGetStringRelaxed(dto.getCountry(), "unknown"));
@@ -358,7 +366,8 @@ public class DataTransformer {
             reporting.setCreatedAt(DEFAULT_TIMESTAMP);
             reporting.setUpdatedAt(DEFAULT_TIMESTAMP);
 
-            logger.debug("Successfully transformed AdsReporting for ad: {}", reporting.getAdvertisementId());
+            logger.debug("Successfully transformed AdsReporting for ad: {} with age_group: {}, gender: {}",
+                    reporting.getAdvertisementId(), reporting.getAgeGroup(), reporting.getGender());
             return reporting;
 
         } catch (Exception e) {
@@ -507,6 +516,9 @@ public class DataTransformer {
         return results;
     }
 
+    /**
+     * Create placeholder reporting with all required fields filled
+     */
     private AdsReporting createPlaceholderReporting() {
         AdsReporting reporting = new AdsReporting();
 
@@ -518,13 +530,13 @@ public class DataTransformer {
         reporting.setAdvertisementId("placeholder_ad");
         reporting.setPlacementId("unknown");
 
-        // Required fields
+        // CRITICAL: Required composite key fields
         reporting.setAdsProcessingDt("2025-01-01");
-        reporting.setAgeGroup("unknown");
-        reporting.setGender("unknown");
-        reporting.setCountryCode(0);
-        reporting.setRegion("unknown");
-        reporting.setCity("unknown");
+        reporting.setAgeGroup("unknown");  // FIX: Always set age_group
+        reporting.setGender("unknown");    // FIX: Always set gender
+        reporting.setCountryCode(0);       // FIX: Always set country_code
+        reporting.setRegion("unknown");    // FIX: Always set region
+        reporting.setCity("unknown");      // FIX: Always set city
 
         // Zero metrics
         setZeroMetrics(reporting);
@@ -534,10 +546,14 @@ public class DataTransformer {
         reporting.setDateStop("2025-01-01");
         reporting.setCreatedAt(DEFAULT_TIMESTAMP);
         reporting.setUpdatedAt(DEFAULT_TIMESTAMP);
+        reporting.setCountryName("unknown");
 
         return reporting;
     }
 
+    /**
+     * Create recovery reporting for failed transformations
+     */
     private AdsReporting createRecoveryReporting(MetaInsightsDto dto, Exception error) {
         AdsReporting reporting = new AdsReporting();
 
@@ -550,13 +566,13 @@ public class DataTransformer {
             reporting.setAdvertisementId(dto.getAdId() != null ? dto.getAdId() : "recovery_ad");
             reporting.setPlacementId("unknown");
 
-            // Use safe values for required fields
+            // CRITICAL: Use safe values for required composite key fields
             reporting.setAdsProcessingDt(dto.getDateStart() != null ? dto.getDateStart() : "2025-01-01");
-            reporting.setAgeGroup("recovery");
-            reporting.setGender("recovery");
-            reporting.setCountryCode(-1); // Special code for recovery records
-            reporting.setRegion("recovery");
-            reporting.setCity("recovery");
+            reporting.setAgeGroup("recovery");     // FIX: Always set age_group
+            reporting.setGender("recovery");       // FIX: Always set gender
+            reporting.setCountryCode(-1);          // Special code for recovery records
+            reporting.setRegion("recovery");       // FIX: Always set region
+            reporting.setCity("recovery");         // FIX: Always set city
 
             // Zero metrics
             setZeroMetrics(reporting);
@@ -566,12 +582,13 @@ public class DataTransformer {
             reporting.setDateStop(dto.getDateStop() != null ? dto.getDateStop() : "2025-01-01");
             reporting.setCreatedAt(DEFAULT_TIMESTAMP);
             reporting.setUpdatedAt(DEFAULT_TIMESTAMP);
+            reporting.setCountryName("recovery");
 
-            logger.info("Created recovery reporting entity for failed transformation");
+            logger.info("Created recovery reporting entity for failed transformation (error: {})", error.getMessage());
             return reporting;
 
         } catch (Exception e2) {
-            logger.error("Failed to create recovery entity, using placeholder");
+            logger.error("Failed to create recovery entity, using placeholder: {}", e2.getMessage());
             return createPlaceholderReporting();
         }
     }
@@ -719,6 +736,97 @@ public class DataTransformer {
         }
     }
 
+    /**
+     * Map Meta API age values to standardized age groups
+     * Handles all possible age formats from Meta API
+     */
+    private String mapAgeGroup(String age) {
+        if (age == null || age.trim().isEmpty()) {
+            return "unknown";
+        }
+
+        String normalizedAge = age.trim().toLowerCase();
+
+        // Handle Meta API age formats
+        switch (normalizedAge) {
+            case "13-17":
+            case "13-18":
+                return "13-17";
+            case "18-24":
+                return "18-24";
+            case "25-34":
+                return "25-34";
+            case "35-44":
+                return "35-44";
+            case "45-54":
+                return "45-54";
+            case "55-64":
+                return "55-64";
+            case "65+":
+            case "65-":
+            case "65 and over":
+                return "65+";
+            default:
+                // Handle numeric ages
+                try {
+                    int ageNum = Integer.parseInt(normalizedAge);
+                    if (ageNum >= 13 && ageNum <= 17) return "13-17";
+                    if (ageNum >= 18 && ageNum <= 24) return "18-24";
+                    if (ageNum >= 25 && ageNum <= 34) return "25-34";
+                    if (ageNum >= 35 && ageNum <= 44) return "35-44";
+                    if (ageNum >= 45 && ageNum <= 54) return "45-54";
+                    if (ageNum >= 55 && ageNum <= 64) return "55-64";
+                    if (ageNum >= 65) return "65+";
+                    return "unknown";
+                } catch (NumberFormatException e) {
+                    logger.debug("Unable to parse age value: '{}', using 'unknown'", age);
+                    return "unknown";
+                }
+        }
+    }
+
+    /**
+     * Map Meta API gender values to standardized gender values
+     * Handles all possible gender formats from Meta API
+     */
+    private String mapGender(String gender) {
+        if (gender == null || gender.trim().isEmpty()) {
+            return "unknown";
+        }
+
+        String normalizedGender = gender.trim().toLowerCase();
+
+        switch (normalizedGender) {
+            case "male":
+            case "m":
+            case "man":
+                return "male";
+            case "female":
+            case "f":
+            case "woman":
+                return "female";
+            case "all":
+            case "both":
+            case "unspecified":
+                return "all";
+            default:
+                logger.debug("Unknown gender value: '{}', using 'unknown'", gender);
+                return "unknown";
+        }
+    }
+
+    /**
+     * Safe country code parsing that never fails
+     */
+    private Integer parseCountryCodeSafe(String country) {
+        try {
+            return parseCountryCodeRelaxed(country);
+        } catch (Exception e) {
+            logger.debug("Failed to parse country code for '{}', using 0", country);
+            return 0;
+        }
+    }
+
     private void analyzeFailurePatterns(List<String> failureReasons, List<MetaInsightsDto> dtos, int failCount) {
         try {
             // Count insights without required fields
@@ -828,5 +936,58 @@ public class DataTransformer {
         reporting.setInlinePostEngagement(0L);
         reporting.setCostPerInlineLinkClick(new BigDecimal("0"));
         reporting.setCostPerInlinePostEngagement(new BigDecimal("0"));
+    }
+
+    /**
+     * Debug method to validate transformed data before insert
+     */
+    public boolean validateAdsReporting(AdsReporting reporting) {
+        List<String> issues = new ArrayList<>();
+
+        // Check required composite key fields
+        if (reporting.getAccountId() == null || reporting.getAccountId().trim().isEmpty()) {
+            issues.add("accountId is null/empty");
+        }
+        if (reporting.getPlatformId() == null || reporting.getPlatformId().trim().isEmpty()) {
+            issues.add("platformId is null/empty");
+        }
+        if (reporting.getCampaignId() == null || reporting.getCampaignId().trim().isEmpty()) {
+            issues.add("campaignId is null/empty");
+        }
+        if (reporting.getAdsetId() == null || reporting.getAdsetId().trim().isEmpty()) {
+            issues.add("adsetId is null/empty");
+        }
+        if (reporting.getAdvertisementId() == null || reporting.getAdvertisementId().trim().isEmpty()) {
+            issues.add("advertisementId is null/empty");
+        }
+        if (reporting.getPlacementId() == null || reporting.getPlacementId().trim().isEmpty()) {
+            issues.add("placementId is null/empty");
+        }
+        if (reporting.getAdsProcessingDt() == null || reporting.getAdsProcessingDt().trim().isEmpty()) {
+            issues.add("adsProcessingDt is null/empty");
+        }
+        if (reporting.getAgeGroup() == null || reporting.getAgeGroup().trim().isEmpty()) {
+            issues.add("ageGroup is null/empty");
+        }
+        if (reporting.getGender() == null || reporting.getGender().trim().isEmpty()) {
+            issues.add("gender is null/empty");
+        }
+        if (reporting.getCountryCode() == null) {
+            issues.add("countryCode is null");
+        }
+        if (reporting.getRegion() == null || reporting.getRegion().trim().isEmpty()) {
+            issues.add("region is null/empty");
+        }
+        if (reporting.getCity() == null || reporting.getCity().trim().isEmpty()) {
+            issues.add("city is null/empty");
+        }
+
+        if (!issues.isEmpty()) {
+            logger.error("AdsReporting validation failed for ad {}: {}",
+                    reporting.getAdvertisementId(), String.join(", ", issues));
+            return false;
+        }
+
+        return true;
     }
 }
